@@ -1,5 +1,5 @@
 import { canHaveNext, isReporter } from "./catalog";
-import type { Block, Script, Value } from "../project/types";
+import type { Block, Opcode, Script, Value } from "../project/types";
 
 export function walk(block: Block, fn: (b: Block) => void): void {
   fn(block);
@@ -9,6 +9,41 @@ export function walk(block: Block, fn: (b: Block) => void): void {
   if (block.next) walk(block.next, fn);
   if (block.substk) walk(block.substk, fn);
   if (block.substk2) walk(block.substk2, fn);
+}
+
+export function findOp(root: Block, id: string): Opcode | undefined {
+  if (root.id === id) return root.op;
+  for (const v of Object.values(root.args)) {
+    if (v.kind === "block") {
+      const found = findOp(v.block, id);
+      if (found) return found;
+    }
+  }
+  if (root.next) {
+    const found = findOp(root.next, id);
+    if (found) return found;
+  }
+  if (root.substk) {
+    const found = findOp(root.substk, id);
+    if (found) return found;
+  }
+  if (root.substk2) {
+    const found = findOp(root.substk2, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Reporter/boolean blocks must not carry stack chains into argument slots. */
+export function asReporter(block: Block): Block {
+  if (!isReporter(block.op)) return block;
+  if (!block.next && !block.substk && !block.substk2) return block;
+  return {
+    ...block,
+    next: undefined,
+    substk: undefined,
+    substk2: undefined,
+  };
 }
 
 export function collectIds(block: Block): Set<string> {
@@ -161,6 +196,7 @@ export function attachTo(
 ): Block {
   return updateBlock(root, hostId, (b) => {
     if (slot === "next") {
+      if (!canHaveNext(b.op)) return b;
       return { ...b, next: b.next ? appendChain(incoming, b.next) : incoming };
     }
     if (slot === "substk") {
@@ -178,19 +214,10 @@ export function attachTo(
     const name = slot.slice(4);
     return {
       ...b,
-      args: { ...b.args, [name]: { kind: "block", block: incoming } },
+      args: {
+        ...b.args,
+        [name]: { kind: "block", block: asReporter(incoming) },
+      },
     };
   });
-}
-
-export function containsId(root: Block, id: string): boolean {
-  let found = false;
-  walk(root, (b) => {
-    if (b.id === id) found = true;
-  });
-  return found;
-}
-
-export function isReporterTree(block: Block): boolean {
-  return isReporter(block.op);
 }

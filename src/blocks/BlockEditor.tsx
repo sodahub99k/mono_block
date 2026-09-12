@@ -7,7 +7,6 @@ import {
   canSnapToStack,
   createBlock,
   isBoolean,
-  isHat,
   isReporter,
 } from "./catalog";
 import type { Opcode } from "../project/types";
@@ -17,6 +16,7 @@ import {
   attachTo,
   collectIds,
   detachFromScript,
+  findOp,
   setArgLiteral,
   type ConnSlot,
 } from "./tree";
@@ -35,36 +35,44 @@ type Ghost = {
 
 type Props = {
   project: Project;
-  spriteId: string;
+  phase: import("../project/types").PhaseId;
+  scripts: Script[];
   onChangeScripts: (scripts: Script[]) => void;
   onAddVariable: (name: string) => void;
 };
 
+const SNAP_RADIUS = 32;
+
 export function BlockEditor({
   project,
-  spriteId,
+  phase,
+  scripts,
   onChangeScripts,
   onAddVariable,
 }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const scriptsRef = useRef<Script[]>(scripts);
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const ghostRef = useRef<Ghost | null>(null);
   const dragIdsRef = useRef<Set<string>>(new Set());
   const offsetRef = useRef({ x: 16, y: 10 });
   const snapRef = useRef<Snap | null>(null);
 
-  const sprite = project.sprites.find((s) => s.id === spriteId);
-  const scripts = sprite?.scripts ?? [];
+  scriptsRef.current = scripts;
 
   useEffect(() => {
     ghostRef.current = ghost;
   }, [ghost]);
 
   function commit(next: Script[]): void {
+    scriptsRef.current = next;
     onChangeScripts(next);
   }
 
-  function workspacePoint(clientX: number, clientY: number): { x: number; y: number } {
+  function workspacePoint(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } {
     const el = scrollerRef.current;
     if (!el) return { x: clientX, y: clientY };
     const r = el.getBoundingClientRect();
@@ -74,15 +82,18 @@ export function BlockEditor({
     };
   }
 
-  function findSnapAt(clientX: number, clientY: number, dragging: Block): Snap | null {
+  function findSnapAt(
+    clientX: number,
+    clientY: number,
+    dragging: Block,
+  ): Snap | null {
     const reporter = isReporter(dragging.op);
     const booleanRep = isBoolean(dragging.op);
     const stackable = canSnapToStack(dragging.op);
-    const hat = isHat(dragging.op);
     const ids = dragIdsRef.current;
     const nodes = document.querySelectorAll<HTMLElement>("[data-conn]");
     let best: Snap | null = null;
-    let bestDist = 32;
+    let bestDist = SNAP_RADIUS;
 
     for (const el of nodes) {
       if (el.closest(".blk-ghost")) continue;
@@ -106,7 +117,7 @@ export function BlockEditor({
           el.classList.contains("blk-empty-bool");
         if (isBoolSlot && !booleanRep) continue;
         if (!isBoolSlot && booleanRep) continue;
-      } else if (hat || reporter || !stackable) {
+      } else if (reporter || !stackable) {
         continue;
       }
 
@@ -122,13 +133,15 @@ export function BlockEditor({
       .forEach((el) => el.classList.remove("snap-glow"));
     if (!next) return;
     const el = document.querySelector<HTMLElement>(
-      `[data-script-id="${next.scriptId}"] [data-block-id="${next.hostId}"][data-conn="${next.slot}"]`,
+      `[data-script-id="${CSS.escape(next.scriptId)}"] [data-block-id="${CSS.escape(next.hostId)}"][data-conn="${CSS.escape(next.slot)}"]`,
     );
     el?.classList.add("snap-glow");
   }
 
   function startGhost(e: ReactPointerEvent, block: Block): void {
-    if ((e.target as HTMLElement).closest("input,select,textarea,button")) return;
+    if ((e.target as HTMLElement).closest("input,select,textarea,button")) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     dragIdsRef.current = collectIds(block);
@@ -176,20 +189,18 @@ export function BlockEditor({
     snapRef.current = null;
     if (!g) return;
 
-    const overPalette = Boolean(
-      document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".palette"),
-    );
-    if (overPalette) return;
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    if (under?.closest(".palette")) return;
 
-    const current = project.sprites.find((sp) => sp.id === spriteId)?.scripts ?? [];
+    const current = scriptsRef.current;
 
     if (s) {
       const hostScript = current.find((sc) => sc.id === s.scriptId);
       if (hostScript) {
         const hostOp = findOp(hostScript.top, s.hostId);
-        if (s.slot === "next" && hostOp && !canHaveNext(hostOp)) {
-          /* skip invalid */
-        } else {
+        const nextOk =
+          s.slot !== "next" || (hostOp !== undefined && canHaveNext(hostOp));
+        if (nextOk) {
           commit(
             current.map((sc) =>
               sc.id === s.scriptId
@@ -201,6 +212,8 @@ export function BlockEditor({
         }
       }
     }
+
+    if (!under?.closest(".workspace")) return;
 
     const pt = workspacePoint(ev.clientX, ev.clientY);
     commit([
@@ -223,14 +236,16 @@ export function BlockEditor({
       startGhost(e, block);
       return;
     }
-    const current = project.sprites.find((sp) => sp.id === spriteId)?.scripts ?? [];
+    const current = scriptsRef.current;
     const script = current.find((s) => s.id === scriptId);
     if (!script) return;
+
     if (script.top.id === block.id) {
       commit(current.filter((s) => s.id !== scriptId));
       startGhost(e, block);
       return;
     }
+
     const { script: rest, detached } = detachFromScript(script, block.id);
     if (!detached) return;
     commit(
@@ -250,9 +265,8 @@ export function BlockEditor({
   }
 
   function onArgChange(blockId: string, name: string, value: string): void {
-    const current = project.sprites.find((sp) => sp.id === spriteId)?.scripts ?? [];
     commit(
-      current.map((s) => ({
+      scriptsRef.current.map((s) => ({
         ...s,
         top: setArgLiteral(s.top, blockId, name, value),
       })),
@@ -263,6 +277,7 @@ export function BlockEditor({
     <>
       <Palette
         project={project}
+        phase={phase}
         onBeginDrag={onPaletteDrag}
         onAddVariable={onAddVariable}
       />
@@ -278,7 +293,7 @@ export function BlockEditor({
               <BlockView
                 block={s.top}
                 project={project}
-                spriteId={spriteId}
+                spriteId=""
                 scriptId={s.id}
                 onPointerDown={onBlockPointerDown}
                 onArgChange={onArgChange}
@@ -292,7 +307,7 @@ export function BlockEditor({
           <BlockView
             block={ghost.block}
             project={project}
-            spriteId={spriteId}
+            spriteId=""
             onPointerDown={() => {}}
             onArgChange={() => {}}
           />
@@ -300,27 +315,4 @@ export function BlockEditor({
       )}
     </>
   );
-}
-
-function findOp(root: Block, id: string): Opcode | undefined {
-  if (root.id === id) return root.op;
-  if (root.next) {
-    const n = findOp(root.next, id);
-    if (n) return n;
-  }
-  if (root.substk) {
-    const n = findOp(root.substk, id);
-    if (n) return n;
-  }
-  if (root.substk2) {
-    const n = findOp(root.substk2, id);
-    if (n) return n;
-  }
-  for (const v of Object.values(root.args)) {
-    if (v.kind === "block") {
-      const n = findOp(v.block, id);
-      if (n) return n;
-    }
-  }
-  return undefined;
 }

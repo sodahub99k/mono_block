@@ -1,14 +1,16 @@
 import type { Project } from "./types";
 import { bouncingProject } from "./examples";
 
-const KEY = "mono_block_project_v1";
+const KEY = "mono_block_project_v2";
 
 export function loadProject(): Project | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as Project;
-    if (!data || !Array.isArray(data.sprites)) return null;
+    if (!data || data.version !== 2 || !Array.isArray(data.entities)) {
+      return null;
+    }
     return data;
   } catch {
     return null;

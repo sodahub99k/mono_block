@@ -2,10 +2,12 @@ import type { Block, Opcode, Shape, Value } from "../project/types";
 import { lit, nid } from "../project/types";
 
 export type CategoryId =
+  | "game"
+  | "input"
+  | "entity"
   | "motion"
   | "looks"
-  | "sound"
-  | "events"
+  | "draw"
   | "control"
   | "sensing"
   | "operators"
@@ -26,13 +28,17 @@ export type BlockDef = {
   color: string;
   parts: Part[];
   elseParts?: Part[];
+  /** If set, only show in these phases (undefined = all). */
+  phases?: Array<"boot" | "update" | "draw">;
 };
 
 export const COLORS: Record<CategoryId, string> = {
+  game: "#0FBD8C",
+  input: "#5CB1D6",
+  entity: "#FF8C1A",
   motion: "#4C97FF",
   looks: "#9966FF",
-  sound: "#CF63CF",
-  events: "#FFBF00",
+  draw: "#CF63CF",
   control: "#FFAB19",
   sensing: "#5CB1D6",
   operators: "#59C059",
@@ -40,10 +46,12 @@ export const COLORS: Record<CategoryId, string> = {
 };
 
 export const CATEGORY_LABEL: Record<CategoryId, string> = {
+  game: "ゲーム",
+  input: "入力",
+  entity: "エンティティ",
   motion: "動き",
   looks: "見た目",
-  sound: "音",
-  events: "イベント",
+  draw: "描画",
   control: "制御",
   sensing: "調べる",
   operators: "演算",
@@ -52,10 +60,10 @@ export const CATEGORY_LABEL: Record<CategoryId, string> = {
 
 export const KEY_OPTIONS = [
   { value: "space", label: "スペース" },
-  { value: "up", label: "上向き矢印" },
-  { value: "down", label: "下向き矢印" },
-  { value: "left", label: "左向き矢印" },
-  { value: "right", label: "右向き矢印" },
+  { value: "up", label: "上" },
+  { value: "down", label: "下" },
+  { value: "left", label: "左" },
+  { value: "right", label: "右" },
   { value: "a", label: "a" },
   { value: "b", label: "b" },
   { value: "w", label: "w" },
@@ -65,59 +73,216 @@ export const KEY_OPTIONS = [
 
 export const DEFS: BlockDef[] = [
   {
-    op: "event_flag",
-    category: "events",
-    shape: "hat",
-    color: COLORS.events,
-    parts: [{ t: "text", s: "旗が押されたとき" }],
+    op: "game_dt",
+    category: "game",
+    shape: "reporter",
+    color: COLORS.game,
+    parts: [{ t: "text", s: "dt" }],
+    phases: ["update", "draw"],
   },
   {
-    op: "event_clicked",
-    category: "events",
-    shape: "hat",
-    color: COLORS.events,
-    parts: [{ t: "text", s: "このスプライトがクリックされたとき" }],
+    op: "game_frame",
+    category: "game",
+    shape: "reporter",
+    color: COLORS.game,
+    parts: [{ t: "text", s: "フレーム" }],
   },
   {
-    op: "event_key",
-    category: "events",
-    shape: "hat",
-    color: COLORS.events,
+    op: "game_stop",
+    category: "game",
+    shape: "cap",
+    color: COLORS.game,
+    parts: [{ t: "text", s: "ゲームを止める" }],
+    phases: ["update"],
+  },
+  {
+    op: "input_key_down",
+    category: "input",
+    shape: "boolean",
+    color: COLORS.input,
     parts: [
       { t: "menu", name: "KEY", options: [...KEY_OPTIONS] },
-      { t: "text", s: "キーが押されたとき" },
+      { t: "text", s: "キーが押されている" },
+    ],
+    phases: ["update"],
+  },
+  {
+    op: "input_key_pressed",
+    category: "input",
+    shape: "boolean",
+    color: COLORS.input,
+    parts: [
+      { t: "menu", name: "KEY", options: [...KEY_OPTIONS] },
+      { t: "text", s: "キーが今押された" },
+    ],
+    phases: ["update"],
+  },
+  {
+    op: "input_mouse_x",
+    category: "input",
+    shape: "reporter",
+    color: COLORS.input,
+    parts: [{ t: "text", s: "マウス x" }],
+  },
+  {
+    op: "input_mouse_y",
+    category: "input",
+    shape: "reporter",
+    color: COLORS.input,
+    parts: [{ t: "text", s: "マウス y" }],
+  },
+  {
+    op: "entity_with",
+    category: "entity",
+    shape: "c",
+    color: COLORS.entity,
+    parts: [
+      { t: "text", s: "エンティティ" },
+      { t: "str", name: "NAME", def: "player" },
+      { t: "text", s: "について" },
     ],
   },
   {
-    op: "motion_move",
+    op: "entity_foreach",
+    category: "entity",
+    shape: "c",
+    color: COLORS.entity,
+    parts: [
+      { t: "text", s: "タグ" },
+      { t: "str", name: "TAG", def: "coin" },
+      { t: "text", s: "の各エンティティ" },
+    ],
+    phases: ["update", "draw"],
+  },
+  {
+    op: "entity_destroy",
+    category: "entity",
+    shape: "stack",
+    color: COLORS.entity,
+    parts: [{ t: "text", s: "このエンティティを消す" }],
+    phases: ["update"],
+  },
+  {
+    op: "entity_name",
+    category: "entity",
+    shape: "reporter",
+    color: COLORS.entity,
+    parts: [{ t: "text", s: "名前" }],
+  },
+  {
+    op: "entity_tag",
+    category: "entity",
+    shape: "reporter",
+    color: COLORS.entity,
+    parts: [{ t: "text", s: "タグ" }],
+  },
+  {
+    op: "motion_setx",
     category: "motion",
     shape: "stack",
     color: COLORS.motion,
     parts: [
-      { t: "num", name: "STEPS", def: "10" },
-      { t: "text", s: "歩動かす" },
+      { t: "text", s: "x を" },
+      { t: "num", name: "X", def: "0" },
+      { t: "text", s: "にする" },
     ],
   },
   {
-    op: "motion_turn_right",
+    op: "motion_sety",
     category: "motion",
     shape: "stack",
     color: COLORS.motion,
     parts: [
-      { t: "text", s: "右に" },
-      { t: "num", name: "DEGREES", def: "15" },
-      { t: "text", s: "度回す" },
+      { t: "text", s: "y を" },
+      { t: "num", name: "Y", def: "0" },
+      { t: "text", s: "にする" },
     ],
   },
   {
-    op: "motion_turn_left",
+    op: "motion_changex",
     category: "motion",
     shape: "stack",
     color: COLORS.motion,
     parts: [
-      { t: "text", s: "左に" },
-      { t: "num", name: "DEGREES", def: "15" },
-      { t: "text", s: "度回す" },
+      { t: "text", s: "x を" },
+      { t: "num", name: "DX", def: "10" },
+      { t: "text", s: "ずつ変える" },
+    ],
+  },
+  {
+    op: "motion_changey",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [
+      { t: "text", s: "y を" },
+      { t: "num", name: "DY", def: "10" },
+      { t: "text", s: "ずつ変える" },
+    ],
+  },
+  {
+    op: "motion_set_vx",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [
+      { t: "text", s: "vx を" },
+      { t: "num", name: "VX", def: "0" },
+      { t: "text", s: "にする" },
+    ],
+  },
+  {
+    op: "motion_set_vy",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [
+      { t: "text", s: "vy を" },
+      { t: "num", name: "VY", def: "0" },
+      { t: "text", s: "にする" },
+    ],
+  },
+  {
+    op: "motion_change_vx",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [
+      { t: "text", s: "vx を" },
+      { t: "num", name: "DVX", def: "10" },
+      { t: "text", s: "ずつ変える" },
+    ],
+  },
+  {
+    op: "motion_change_vy",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [
+      { t: "text", s: "vy を" },
+      { t: "num", name: "DVY", def: "10" },
+      { t: "text", s: "ずつ変える" },
+    ],
+  },
+  {
+    op: "motion_apply_velocity",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [{ t: "text", s: "速度を位置に足す (×dt)" }],
+    phases: ["update"],
+  },
+  {
+    op: "motion_gotoxy",
+    category: "motion",
+    shape: "stack",
+    color: COLORS.motion,
+    parts: [
+      { t: "text", s: "x:" },
+      { t: "num", name: "X", def: "0" },
+      { t: "text", s: " y:" },
+      { t: "num", name: "Y", def: "0" },
+      { t: "text", s: "へ行く" },
     ],
   },
   {
@@ -132,87 +297,40 @@ export const DEFS: BlockDef[] = [
     ],
   },
   {
-    op: "motion_gotoxy",
+    op: "motion_bounce_edges",
     category: "motion",
     shape: "stack",
     color: COLORS.motion,
-    parts: [
-      { t: "text", s: "x座標を" },
-      { t: "num", name: "X", def: "0" },
-      { t: "text", s: "、y座標を" },
-      { t: "num", name: "Y", def: "0" },
-      { t: "text", s: "にする" },
-    ],
+    parts: [{ t: "text", s: "端で跳ね返る (vx/vy)" }],
+    phases: ["update"],
   },
   {
-    op: "motion_goto_random",
+    op: "motion_x",
     category: "motion",
-    shape: "stack",
+    shape: "reporter",
     color: COLORS.motion,
-    parts: [{ t: "text", s: "どこかの場所へ行く" }],
+    parts: [{ t: "text", s: "x" }],
   },
   {
-    op: "motion_changex",
+    op: "motion_y",
     category: "motion",
-    shape: "stack",
+    shape: "reporter",
     color: COLORS.motion,
-    parts: [
-      { t: "text", s: "x座標を" },
-      { t: "num", name: "DX", def: "10" },
-      { t: "text", s: "ずつ変える" },
-    ],
+    parts: [{ t: "text", s: "y" }],
   },
   {
-    op: "motion_changey",
+    op: "motion_vx",
     category: "motion",
-    shape: "stack",
+    shape: "reporter",
     color: COLORS.motion,
-    parts: [
-      { t: "text", s: "y座標を" },
-      { t: "num", name: "DY", def: "10" },
-      { t: "text", s: "ずつ変える" },
-    ],
+    parts: [{ t: "text", s: "vx" }],
   },
   {
-    op: "motion_setx",
+    op: "motion_vy",
     category: "motion",
-    shape: "stack",
+    shape: "reporter",
     color: COLORS.motion,
-    parts: [
-      { t: "text", s: "x座標を" },
-      { t: "num", name: "X", def: "0" },
-      { t: "text", s: "にする" },
-    ],
-  },
-  {
-    op: "motion_sety",
-    category: "motion",
-    shape: "stack",
-    color: COLORS.motion,
-    parts: [
-      { t: "text", s: "y座標を" },
-      { t: "num", name: "Y", def: "0" },
-      { t: "text", s: "にする" },
-    ],
-  },
-  {
-    op: "motion_bounce",
-    category: "motion",
-    shape: "stack",
-    color: COLORS.motion,
-    parts: [{ t: "text", s: "端に触れたら跳ね返る" }],
-  },
-  {
-    op: "looks_say",
-    category: "looks",
-    shape: "stack",
-    color: COLORS.looks,
-    parts: [
-      { t: "str", name: "MESSAGE", def: "こんにちは!" },
-      { t: "text", s: "と" },
-      { t: "num", name: "SECS", def: "2" },
-      { t: "text", s: "秒言う" },
-    ],
+    parts: [{ t: "text", s: "vy" }],
   },
   {
     op: "looks_show",
@@ -240,61 +358,35 @@ export const DEFS: BlockDef[] = [
     ],
   },
   {
-    op: "looks_changesize",
-    category: "looks",
-    shape: "stack",
-    color: COLORS.looks,
-    parts: [
-      { t: "text", s: "大きさを" },
-      { t: "num", name: "SIZE", def: "10" },
-      { t: "text", s: "ずつ変える" },
-    ],
-  },
-  {
     op: "looks_nextcostume",
     category: "looks",
     shape: "stack",
     color: COLORS.looks,
-    parts: [{ t: "text", s: "次のコスチュームにする" }],
+    parts: [{ t: "text", s: "次のコスチューム" }],
   },
   {
-    op: "sound_beep",
-    category: "sound",
+    op: "draw_text",
+    category: "draw",
     shape: "stack",
-    color: COLORS.sound,
+    color: COLORS.draw,
     parts: [
-      { t: "num", name: "FREQ", def: "440" },
-      { t: "text", s: "Hz の音を" },
-      { t: "num", name: "SECS", def: "0.2" },
-      { t: "text", s: "秒鳴らす" },
+      { t: "text", s: "文字" },
+      { t: "str", name: "TEXT", def: "Hello" },
+      { t: "text", s: "を (" },
+      { t: "num", name: "X", def: "-200" },
+      { t: "text", s: "," },
+      { t: "num", name: "Y", def: "150" },
+      { t: "text", s: ") に描く" },
     ],
+    phases: ["draw"],
   },
   {
-    op: "control_wait",
-    category: "control",
+    op: "draw_clear_overlay",
+    category: "draw",
     shape: "stack",
-    color: COLORS.control,
-    parts: [
-      { t: "num", name: "SECS", def: "1" },
-      { t: "text", s: "秒待つ" },
-    ],
-  },
-  {
-    op: "control_repeat",
-    category: "control",
-    shape: "c",
-    color: COLORS.control,
-    parts: [
-      { t: "num", name: "TIMES", def: "10" },
-      { t: "text", s: "回繰り返す" },
-    ],
-  },
-  {
-    op: "control_forever",
-    category: "control",
-    shape: "ccap",
-    color: COLORS.control,
-    parts: [{ t: "text", s: "ずっと" }],
+    color: COLORS.draw,
+    parts: [{ t: "text", s: "オーバーレイを消す" }],
+    phases: ["draw"],
   },
   {
     op: "control_if",
@@ -320,45 +412,32 @@ export const DEFS: BlockDef[] = [
     elseParts: [{ t: "text", s: "でなければ" }],
   },
   {
-    op: "control_stop",
+    op: "control_repeat",
     category: "control",
-    shape: "cap",
+    shape: "c",
     color: COLORS.control,
-    parts: [{ t: "text", s: "すべてを止める" }],
-  },
-  {
-    op: "sensing_keypressed",
-    category: "sensing",
-    shape: "boolean",
-    color: COLORS.sensing,
     parts: [
-      { t: "menu", name: "KEY", options: [...KEY_OPTIONS] },
-      { t: "text", s: "キーが押された" },
+      { t: "num", name: "TIMES", def: "10" },
+      { t: "text", s: "回繰り返す" },
     ],
   },
   {
-    op: "sensing_touching",
+    op: "sensing_touching_tag",
     category: "sensing",
     shape: "boolean",
     color: COLORS.sensing,
     parts: [
-      { t: "menu", name: "TARGET", options: [{ value: "edge", label: "端" }] },
+      { t: "text", s: "タグ" },
+      { t: "str", name: "TAG", def: "coin" },
       { t: "text", s: "に触れた" },
     ],
   },
   {
-    op: "sensing_mousex",
+    op: "sensing_touching_edge",
     category: "sensing",
-    shape: "reporter",
+    shape: "boolean",
     color: COLORS.sensing,
-    parts: [{ t: "text", s: "マウスのx座標" }],
-  },
-  {
-    op: "sensing_mousey",
-    category: "sensing",
-    shape: "reporter",
-    color: COLORS.sensing,
-    parts: [{ t: "text", s: "マウスのy座標" }],
+    parts: [{ t: "text", s: "端に触れた" }],
   },
   {
     op: "operator_add",
@@ -412,7 +491,7 @@ export const DEFS: BlockDef[] = [
     parts: [
       { t: "text", s: "乱数" },
       { t: "num", name: "FROM", def: "1" },
-      { t: "text", s: "から" },
+      { t: "text", s: "〜" },
       { t: "num", name: "TO", def: "10" },
     ],
   },
@@ -555,20 +634,18 @@ export function isBoolean(op: Opcode): boolean {
   return shapeOf(op) === "boolean";
 }
 
-export function isHat(op: Opcode): boolean {
-  return shapeOf(op) === "hat";
+export function isHat(_op: Opcode): boolean {
+  return false;
 }
 
 export function canHaveNext(op: Opcode): boolean {
   const s = shapeOf(op);
-  return s === "stack" || s === "c" || s === "c2" || s === "hat";
+  return s === "stack" || s === "c" || s === "c2";
 }
 
 export function canSnapToStack(op: Opcode): boolean {
   const s = shapeOf(op);
-  return (
-    s === "stack" || s === "c" || s === "c2" || s === "ccap" || s === "cap"
-  );
+  return s === "stack" || s === "c" || s === "c2" || s === "cap";
 }
 
 export function createBlock(op: Opcode, extra?: Record<string, string>): Block {
@@ -578,9 +655,6 @@ export function createBlock(op: Opcode, extra?: Record<string, string>): Block {
     if (p.t === "num" || p.t === "str") args[p.name] = lit(p.def);
     if (p.t === "menu") args[p.name] = lit(p.options[0]?.value ?? "");
     if (p.t === "var") args[p.name] = lit(extra?.VAR ?? "");
-    if (p.t === "bool") {
-      /* empty slot */
-    }
   }
   if (extra) {
     for (const [k, v] of Object.entries(extra)) args[k] = lit(v);
@@ -593,4 +667,10 @@ export function chain(...blocks: Block[]): Block {
     blocks[i]!.next = blocks[i + 1];
   }
   return blocks[0]!;
+}
+
+export function defsForPhase(
+  phase: "boot" | "update" | "draw",
+): BlockDef[] {
+  return DEFS.filter((d) => !d.phases || d.phases.includes(phase));
 }

@@ -28,12 +28,9 @@ export function BlockView({
   const def = defOf(block.op);
   const shape = shapeOf(block.op);
   const style = { "--blk": def.color } as CSSProperties;
-  const hasMouth = shape === "c" || shape === "c2" || shape === "ccap";
+  const hasMouth = shape === "c" || shape === "c2";
   const hasNextBump =
-    shape !== "ccap" &&
-    shape !== "cap" &&
-    shape !== "reporter" &&
-    shape !== "boolean";
+    shape !== "cap" && shape !== "reporter" && shape !== "boolean";
 
   return (
     <div className="blk-col">
@@ -43,7 +40,6 @@ export function BlockView({
         data-block-id={block.id}
         onPointerDown={(e) => onPointerDown(e, block, scriptId)}
       >
-        {shape === "hat" && <div className="blk-hat-cap" />}
         <div className="blk-head">
           {def.parts.map((p, i) => (
             <PartView
@@ -120,20 +116,17 @@ export function BlockView({
             </div>
           </>
         )}
-        {(shape === "c" || shape === "c2" || shape === "ccap") && (
+        {(shape === "c" || shape === "c2") && (
           <div className="blk-foot">
             {hasNextBump && (
               <span className="blk-bump" data-conn="next" data-block-id={block.id} />
             )}
           </div>
         )}
-        {shape !== "c" &&
-          shape !== "c2" &&
-          shape !== "ccap" &&
-          hasNextBump && (
-            <span className="blk-bump" data-conn="next" data-block-id={block.id} />
-          )}
-        {shape !== "hat" && shape !== "reporter" && shape !== "boolean" ? (
+        {shape !== "c" && shape !== "c2" && hasNextBump && (
+          <span className="blk-bump" data-conn="next" data-block-id={block.id} />
+        )}
+        {shape !== "reporter" && shape !== "boolean" ? (
           <span className="blk-notch" />
         ) : null}
       </div>
@@ -224,7 +217,7 @@ function PartView({
         ? [
             { value: "edge", label: "端" },
             { value: "mouse", label: "マウスのポインター" },
-            ...project.sprites.map((s) => ({ value: s.name, label: s.name })),
+            ...project.entities.map((s) => ({ value: s.name, label: s.name })),
           ]
         : part.options;
     const v = nested?.kind === "literal" ? nested.value : options[0]?.value ?? "";

@@ -1,4 +1,4 @@
-import type { BackdropId, CostumeKind, Sprite } from "../project/types";
+import type { BackdropId, CostumeKind, Entity } from "../project/types";
 
 const BACKDROPS: { id: BackdropId; label: string }[] = [
   { id: "sky", label: "空" },
@@ -8,28 +8,35 @@ const BACKDROPS: { id: BackdropId; label: string }[] = [
 ];
 
 type Props = {
-  sprite: Sprite | undefined;
+  entity: Entity | undefined;
   backdrop: BackdropId;
   onBackdrop: (id: BackdropId) => void;
-  onChange: (patch: Partial<Sprite>) => void;
+  onChange: (patch: Partial<Entity>) => void;
   onCostume: (kind: CostumeKind) => void;
 };
 
 export function Inspector({
-  sprite,
+  entity,
   backdrop,
   onBackdrop,
   onChange,
   onCostume,
 }: Props) {
-  if (!sprite) return null;
+  if (!entity) return null;
   return (
     <div className="inspector">
       <label>
         名前
         <input
-          value={sprite.name}
+          value={entity.name}
           onChange={(e) => onChange({ name: e.target.value })}
+        />
+      </label>
+      <label>
+        タグ
+        <input
+          value={entity.tag}
+          onChange={(e) => onChange({ tag: e.target.value })}
         />
       </label>
       <div className="xy">
@@ -37,7 +44,7 @@ export function Inspector({
           x
           <input
             type="number"
-            value={Math.round(sprite.x)}
+            value={Math.round(entity.x)}
             onChange={(e) => onChange({ x: Number(e.target.value) })}
           />
         </label>
@@ -45,8 +52,26 @@ export function Inspector({
           y
           <input
             type="number"
-            value={Math.round(sprite.y)}
+            value={Math.round(entity.y)}
             onChange={(e) => onChange({ y: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+      <div className="xy">
+        <label>
+          vx
+          <input
+            type="number"
+            value={Math.round(entity.vx)}
+            onChange={(e) => onChange({ vx: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          vy
+          <input
+            type="number"
+            value={Math.round(entity.vy)}
+            onChange={(e) => onChange({ vy: Number(e.target.value) })}
           />
         </label>
       </div>
@@ -55,7 +80,7 @@ export function Inspector({
           向き
           <input
             type="number"
-            value={Math.round(sprite.direction)}
+            value={Math.round(entity.direction)}
             onChange={(e) => onChange({ direction: Number(e.target.value) })}
           />
         </label>
@@ -63,7 +88,7 @@ export function Inspector({
           大きさ%
           <input
             type="number"
-            value={Math.round(sprite.size)}
+            value={Math.round(entity.size)}
             onChange={(e) => onChange({ size: Number(e.target.value) })}
           />
         </label>
@@ -71,7 +96,7 @@ export function Inspector({
       <label className="check">
         <input
           type="checkbox"
-          checked={sprite.visible}
+          checked={entity.visible}
           onChange={(e) => onChange({ visible: e.target.checked })}
         />
         表示する
@@ -79,7 +104,7 @@ export function Inspector({
       <label>
         コスチューム
         <select
-          value={sprite.costumes[sprite.costumeIndex]?.kind ?? "cat"}
+          value={entity.costumes[entity.costumeIndex]?.kind ?? "cat"}
           onChange={(e) => onCostume(e.target.value as CostumeKind)}
         >
           <option value="cat">ネコ</option>

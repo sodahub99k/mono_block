@@ -1,6 +1,6 @@
 {
   "title": "Mono Block",
-  "description": "ブロックを組み合わせてゲームをつくる，Scratch風のビジュアルプログラミングIDE。",
+  "description": "boot/update/draw のフレームループでゲームをつくる，大人向けビジュアルプログラミングIDE。",
   "category": "app",
   "visible": true,
   "featured": true

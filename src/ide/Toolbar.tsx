@@ -1,7 +1,10 @@
 import { EXAMPLES } from "../project/examples";
+import type { PhaseId } from "../project/types";
 
 type Props = {
   running: boolean;
+  phase: PhaseId;
+  onPhase: (p: PhaseId) => void;
   onGreenFlag: () => void;
   onStop: () => void;
   onExample: (id: string) => void;
@@ -12,8 +15,16 @@ type Props = {
   onDismissHint: () => void;
 };
 
+const PHASES: { id: PhaseId; label: string; hint: string }[] = [
+  { id: "boot", label: "boot", hint: "開始時に一度だけ" },
+  { id: "update", label: "update", hint: "毎フレーム（ロジック）" },
+  { id: "draw", label: "draw", hint: "毎フレーム（HUD）" },
+];
+
 export function Toolbar({
   running,
+  phase,
+  onPhase,
   onGreenFlag,
   onStop,
   onExample,
@@ -33,22 +44,39 @@ export function Toolbar({
         </span>
         <div>
           <strong>Mono Block</strong>
-          <span className="tag">ビジュアルプログラミング</span>
+          <span className="tag">フレームループ型ゲームIDE</span>
         </div>
       </div>
+
+      <div className="phase-tabs" role="tablist" aria-label="フェーズ">
+        {PHASES.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            role="tab"
+            aria-selected={phase === p.id}
+            className={`phase-tab ${phase === p.id ? "is-active" : ""}`}
+            title={p.hint}
+            onClick={() => onPhase(p.id)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       <div className="controls">
         <button
           type="button"
           className={`flag ${running ? "is-on" : ""}`}
           onClick={onGreenFlag}
-          title="旗が押されたとき を実行"
+          title="ゲームループを実行"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path fill="currentColor" d="M4 3h2v18H4V3zm3 1 12 5.5L7 15V4z" />
           </svg>
           実行
         </button>
-        <button type="button" className="stop" onClick={onStop} title="すべて止める">
+        <button type="button" className="stop" onClick={onStop} title="停止">
           <span className="stop-icon" />
           停止
         </button>
@@ -91,7 +119,8 @@ export function Toolbar({
       </div>
       {showHint && (
         <p className="hint-bar">
-          左のブロックをドラッグしてつなぎ、緑の旗で動かします。パレットに戻すと削除。
+          Scratch と違い、エンティティはデータだけ。コードは boot / update /
+          draw の1本のゲームループです。
           <button type="button" onClick={onDismissHint}>
             OK
           </button>

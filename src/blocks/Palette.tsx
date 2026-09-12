@@ -1,16 +1,22 @@
-import { useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useMemo,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { BlockView } from "./BlockView";
 import {
   CATEGORY_LABEL,
   COLORS,
-  DEFS,
   createBlock,
+  defsForPhase,
   type CategoryId,
 } from "./catalog";
-import type { Opcode, Project } from "../project/types";
+import type { Opcode, PhaseId, Project } from "../project/types";
 
 type Props = {
   project: Project;
+  phase: PhaseId;
   onBeginDrag: (
     e: ReactPointerEvent,
     op: Opcode,
@@ -20,44 +26,93 @@ type Props = {
 };
 
 const ORDER: CategoryId[] = [
+  "game",
+  "input",
+  "entity",
   "motion",
   "looks",
-  "sound",
-  "events",
+  "draw",
   "control",
   "sensing",
   "operators",
   "variables",
 ];
 
-export function Palette({ project, onBeginDrag, onAddVariable }: Props) {
-  const [cat, setCat] = useState<CategoryId>("events");
+export function Palette({
+  project,
+  phase,
+  onBeginDrag,
+  onAddVariable,
+}: Props) {
+  const [cat, setCat] = useState<CategoryId>("entity");
+  const defaultVar = project.variables[0]?.name;
 
-  const defs = DEFS.filter((d) => {
-    if (d.category !== cat) return false;
-    if (d.op === "data_variable") return false;
-    if (
-      (d.op === "data_set" ||
-        d.op === "data_change" ||
-        d.op === "data_show" ||
-        d.op === "data_hide") &&
-      project.variables.length === 0
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const availableCats = useMemo(() => {
+    const defs = defsForPhase(phase);
+    return ORDER.filter((id) => defs.some((d) => d.category === id));
+  }, [phase]);
+
+  const activeCat = availableCats.includes(cat)
+    ? cat
+    : (availableCats[0] ?? "control");
+
+  const defs = useMemo(
+    () =>
+      defsForPhase(phase).filter((d) => {
+        if (d.category !== activeCat) return false;
+        if (d.op === "data_variable") return false;
+        if (
+          (d.op === "data_set" ||
+            d.op === "data_change" ||
+            d.op === "data_show" ||
+            d.op === "data_hide") &&
+          project.variables.length === 0
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [phase, activeCat, project.variables.length],
+  );
+
+  const prototypes = useMemo(
+    () =>
+      defs.map((d) => ({
+        op: d.op,
+        block: createBlock(
+          d.op,
+          d.op.startsWith("data_") && defaultVar
+            ? { VAR: defaultVar }
+            : undefined,
+        ),
+        extra:
+          d.op.startsWith("data_") && defaultVar
+            ? { VAR: defaultVar }
+            : undefined,
+      })),
+    [defs, defaultVar],
+  );
+
+  const varReporters = useMemo(
+    () =>
+      project.variables.map((v) => ({
+        id: v.id,
+        name: v.name,
+        block: createBlock("data_variable", { VAR: v.name }),
+      })),
+    [project.variables],
+  );
 
   return (
     <aside className="palette">
       <div className="palette-cats" role="tablist" aria-label="ブロックの種類">
-        {ORDER.map((id) => (
+        {availableCats.map((id) => (
           <button
             key={id}
             type="button"
             role="tab"
-            aria-selected={cat === id}
-            className={`cat ${cat === id ? "is-active" : ""}`}
+            aria-selected={activeCat === id}
+            className={`cat ${activeCat === id ? "is-active" : ""}`}
             style={{ "--cat": COLORS[id] } as CSSProperties}
             onClick={() => setCat(id)}
           >
@@ -67,7 +122,7 @@ export function Palette({ project, onBeginDrag, onAddVariable }: Props) {
         ))}
       </div>
       <div className="palette-list">
-        {cat === "variables" && (
+        {activeCat === "variables" && (
           <div className="var-tools">
             <button
               type="button"
@@ -79,10 +134,10 @@ export function Palette({ project, onBeginDrag, onAddVariable }: Props) {
             >
               変数を作る
             </button>
-            {project.variables.map((v) => (
+            {varReporters.map((v) => (
               <div key={v.id} className="palette-proto">
                 <BlockView
-                  block={createBlock("data_variable", { VAR: v.name })}
+                  block={v.block}
                   project={project}
                   spriteId=""
                   onPointerDown={(e) =>
@@ -94,32 +149,21 @@ export function Palette({ project, onBeginDrag, onAddVariable }: Props) {
             ))}
           </div>
         )}
-        {defs.map((d) => (
-          <div key={d.op} className="palette-proto">
+        {prototypes.map((p) => (
+          <div key={p.op} className="palette-proto">
             <BlockView
-              block={createBlock(
-                d.op,
-                d.op.startsWith("data_") && project.variables[0]
-                  ? { VAR: project.variables[0].name }
-                  : undefined,
-              )}
+              block={p.block}
               project={project}
               spriteId=""
-              onPointerDown={(e) =>
-                onBeginDrag(
-                  e,
-                  d.op,
-                  d.op.startsWith("data_") && project.variables[0]
-                    ? { VAR: project.variables[0].name }
-                    : undefined,
-                )
-              }
+              onPointerDown={(e) => onBeginDrag(e, p.op, p.extra)}
               onArgChange={() => {}}
             />
           </div>
         ))}
-        {cat === "variables" && project.variables.length === 0 && (
-          <p className="palette-hint">変数を作ると、セット／変化ブロックが出ます。</p>
+        {activeCat === "variables" && project.variables.length === 0 && (
+          <p className="palette-hint">
+            変数を作ると、セット／変化ブロックが出ます。
+          </p>
         )}
       </div>
     </aside>

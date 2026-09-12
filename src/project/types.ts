@@ -1,38 +1,58 @@
 export const STAGE_W = 480;
 export const STAGE_H = 360;
+export const FIXED_DT = 1 / 60;
+
+export type PhaseId = "boot" | "update" | "draw";
 
 export type Opcode =
-  | "event_flag"
-  | "event_clicked"
-  | "event_key"
-  | "motion_move"
-  | "motion_turn_right"
-  | "motion_turn_left"
-  | "motion_point"
-  | "motion_gotoxy"
-  | "motion_goto_random"
-  | "motion_changex"
-  | "motion_changey"
+  // game / time
+  | "game_dt"
+  | "game_frame"
+  | "game_stop"
+  // input (polling)
+  | "input_key_down"
+  | "input_key_pressed"
+  | "input_mouse_x"
+  | "input_mouse_y"
+  // entity selection / iteration
+  | "entity_with"
+  | "entity_foreach"
+  | "entity_destroy"
+  | "entity_name"
+  | "entity_tag"
+  // motion (current entity)
   | "motion_setx"
   | "motion_sety"
-  | "motion_bounce"
-  | "looks_say"
+  | "motion_changex"
+  | "motion_changey"
+  | "motion_set_vx"
+  | "motion_set_vy"
+  | "motion_change_vx"
+  | "motion_change_vy"
+  | "motion_apply_velocity"
+  | "motion_gotoxy"
+  | "motion_point"
+  | "motion_bounce_edges"
+  | "motion_x"
+  | "motion_y"
+  | "motion_vx"
+  | "motion_vy"
+  // looks
   | "looks_show"
   | "looks_hide"
   | "looks_setsizeto"
-  | "looks_changesize"
   | "looks_nextcostume"
-  | "sound_beep"
-  | "control_wait"
-  | "control_repeat"
-  | "control_forever"
+  // draw (draw phase / HUD)
+  | "draw_text"
+  | "draw_clear_overlay"
+  // control (no forever / wait)
   | "control_if"
   | "control_if_else"
-  | "control_stop"
-  | "sensing_keypressed"
-  | "sensing_touching"
-  | "sensing_mousex"
-  | "sensing_mousey"
+  | "control_repeat"
+  // sensing
+  | "sensing_touching_tag"
+  | "sensing_touching_edge"
+  // operators
   | "operator_add"
   | "operator_sub"
   | "operator_mul"
@@ -44,28 +64,17 @@ export type Opcode =
   | "operator_and"
   | "operator_or"
   | "operator_not"
+  // variables
   | "data_set"
   | "data_change"
   | "data_show"
   | "data_hide"
   | "data_variable";
 
-export type Category =
-  | "motion"
-  | "looks"
-  | "sound"
-  | "events"
-  | "control"
-  | "sensing"
-  | "operators"
-  | "variables";
-
 export type Shape =
-  | "hat"
   | "stack"
   | "c"
   | "c2"
-  | "ccap"
   | "cap"
   | "reporter"
   | "boolean";
@@ -98,17 +107,20 @@ export type Costume = {
   kind: CostumeKind;
 };
 
-export type Sprite = {
+/** Pure data — no scripts. */
+export type Entity = {
   id: string;
   name: string;
+  tag: string;
   x: number;
   y: number;
+  vx: number;
+  vy: number;
   direction: number;
   size: number;
   visible: boolean;
   costumes: Costume[];
   costumeIndex: number;
-  scripts: Script[];
 };
 
 export type Variable = {
@@ -121,10 +133,14 @@ export type Variable = {
 export type BackdropId = "sky" | "space" | "room" | "grid";
 
 export type Project = {
+  version: 2;
   name: string;
   backdrop: BackdropId;
-  sprites: Sprite[];
+  entities: Entity[];
   variables: Variable[];
+  boot: Script[];
+  update: Script[];
+  draw: Script[];
 };
 
 export function nid(): string {
@@ -133,4 +149,8 @@ export function nid(): string {
 
 export function lit(value: string | number): Value {
   return { kind: "literal", value: String(value) };
+}
+
+export function emptyPhases(): Pick<Project, "boot" | "update" | "draw"> {
+  return { boot: [], update: [], draw: [] };
 }

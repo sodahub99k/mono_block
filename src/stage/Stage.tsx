@@ -12,26 +12,43 @@ type Props = {
 
 export function Stage({ project, selectedId, onSelect }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const projectRef = useRef(project);
+  projectRef.current = project;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    let timer = 0;
-    const tick = () => {
-      const engine = getEngine();
-      const snap = engine.snapshot() ?? snapshotFromProject(project);
-      drawFrame(ctx, snap);
-    };
-    tick();
-    timer = window.setInterval(tick, 32);
-    return () => window.clearInterval(timer);
-  }, [project]);
 
-  function toScratch(e: MouseEvent<HTMLCanvasElement>): { x: number; y: number } {
+    let raf = 0;
+    let alive = true;
+
+    const tick = () => {
+      if (!alive) return;
+      const engine = getEngine();
+      const snap = engine.snapshot() ?? snapshotFromProject(projectRef.current);
+      drawFrame(ctx, snap);
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  function toScratch(
+    e: MouseEvent<HTMLCanvasElement>,
+  ): { x: number; y: number } {
     const canvas = canvasRef.current!;
     const r = canvas.getBoundingClientRect();
-    return canvasToScratch(e.clientX - r.left, e.clientY - r.top, r.width, r.height);
+    return canvasToScratch(
+      e.clientX - r.left,
+      e.clientY - r.top,
+      r.width,
+      r.height,
+    );
   }
 
   return (
@@ -49,21 +66,22 @@ export function Stage({ project, selectedId, onSelect }: Props) {
           const p = toScratch(e);
           const eng = getEngine();
           eng.setMouse(p.x, p.y, true);
-          const snap = eng.snapshot() ?? snapshotFromProject(project);
-          const hit = hitTest(snap.sprites, p.x, p.y);
-          if (hit) {
-            onSelect(hit.id);
-            eng.clickSprite(hit.id);
-          }
+          if (eng.running) return;
+          const snap = snapshotFromProject(projectRef.current);
+          const hit = hitTest(snap.entities, p.x, p.y);
+          if (hit) onSelect(hit.id);
         }}
         onMouseUp={(e) => {
           const p = toScratch(e);
           getEngine().setMouse(p.x, p.y, false);
         }}
+        onMouseLeave={() => {
+          getEngine().setMouse(0, 0, false);
+        }}
         aria-label="ステージ"
       />
       <div className="stage-selected">
-        {project.sprites.find((s) => s.id === selectedId)?.name ?? ""}
+        {project.entities.find((s) => s.id === selectedId)?.name ?? ""}
       </div>
     </div>
   );

@@ -1,52 +1,52 @@
-import { STAGE_H, STAGE_W } from "../project/types";
-import type { Block, Project, Sprite, Value, Variable } from "../project/types";
+import {
+  FIXED_DT,
+  STAGE_H,
+  STAGE_W,
+  type Block,
+  type Entity,
+  type Project,
+  type Script,
+  type Value,
+  type Variable,
+} from "../project/types";
 
-export type SpriteLive = {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  direction: number;
-  size: number;
-  visible: boolean;
-  costumeIndex: number;
-  costumes: Sprite["costumes"];
-  say: { text: string; until: number } | null;
-};
+export type EntityLive = Entity;
 
-export type VarLive = Variable;
+export type OverlayText = { x: number; y: number; text: string };
 
 export type EngineSnapshot = {
-  sprites: SpriteLive[];
-  variables: VarLive[];
+  entities: EntityLive[];
+  variables: Variable[];
   backdrop: Project["backdrop"];
   mouse: { x: number; y: number };
+  overlays: OverlayText[];
+  frame: number;
+};
+
+type InputState = {
+  down: Set<string>;
+  pressed: Set<string>;
+  prev: Set<string>;
+  mouse: { x: number; y: number; down: boolean };
 };
 
 type Runtime = {
   running: boolean;
-  abort: AbortController;
-  keys: Set<string>;
-  mouse: { x: number; y: number; down: boolean };
-  sprites: SpriteLive[];
-  variables: VarLive[];
   project: Project;
-  startMs: number;
+  entities: EntityLive[];
+  variables: Variable[];
+  current: EntityLive | null;
+  input: InputState;
+  frame: number;
+  dt: number;
+  overlays: OverlayText[];
+  pendingDestroy: Set<string>;
   onStop?: () => void;
+  raf: number;
 };
 
 const SPRITE_HALF = 36;
-
-function deg2rad(d: number): number {
-  return (d * Math.PI) / 180;
-}
-
-function wrapDir(d: number): number {
-  let x = d % 360;
-  if (x > 180) x -= 360;
-  if (x <= -180) x += 360;
-  return x;
-}
+const MAX_OPS = 50_000;
 
 function num(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -72,34 +72,23 @@ function truthy(v: unknown): boolean {
   return Boolean(v);
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const t = window.setTimeout(resolve, ms);
-    const onAbort = () => {
-      window.clearTimeout(t);
-      reject(new DOMException("aborted", "AbortError"));
-    };
-    if (signal.aborted) {
-      onAbort();
-      return;
-    }
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
+function wrapDir(d: number): number {
+  let x = d % 360;
+  if (x > 180) x -= 360;
+  if (x <= -180) x += 360;
+  return x;
 }
 
-function nextFrame(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const id = window.setTimeout(() => resolve(), 32);
-    const onAbort = () => {
-      window.clearTimeout(id);
-      reject(new DOMException("aborted", "AbortError"));
-    };
-    if (signal.aborted) {
-      onAbort();
-      return;
-    }
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
+function bounds(e: EntityLive): { hw: number; hh: number } {
+  const sc = Math.max(0.1, e.size / 100);
+  return { hw: SPRITE_HALF * sc, hh: SPRITE_HALF * sc };
+}
+
+function cloneEntity(e: Entity): EntityLive {
+  return {
+    ...e,
+    costumes: e.costumes.map((c) => ({ ...c })),
+  };
 }
 
 export function eventToKey(e: KeyboardEvent): string | null {
@@ -112,90 +101,117 @@ export function eventToKey(e: KeyboardEvent): string | null {
   return null;
 }
 
-function bounds(s: SpriteLive): { hw: number; hh: number } {
-  const sc = Math.max(0.1, s.size / 100);
-  return { hw: SPRITE_HALF * sc, hh: SPRITE_HALF * sc };
+export function hitTest(
+  entities: EntityLive[],
+  x: number,
+  y: number,
+): EntityLive | undefined {
+  for (let i = entities.length - 1; i >= 0; i--) {
+    const s = entities[i]!;
+    if (!s.visible) continue;
+    const { hw, hh } = bounds(s);
+    if (Math.abs(s.x - x) <= hw && Math.abs(s.y - y) <= hh) return s;
+  }
+  return undefined;
 }
 
-function touchingTarget(self: SpriteLive, target: string, rt: Runtime): boolean {
-  const { hw, hh } = bounds(self);
-  if (target === "edge") {
-    return (
-      self.x + hw >= STAGE_W / 2 ||
-      self.x - hw <= -STAGE_W / 2 ||
-      self.y + hh >= STAGE_H / 2 ||
-      self.y - hh <= -STAGE_H / 2
-    );
-  }
-  if (target === "mouse") {
-    return (
-      Math.abs(self.x - rt.mouse.x) < hw && Math.abs(self.y - rt.mouse.y) < hh
-    );
-  }
-  const other = rt.sprites.find((s) => s.id === target || s.name === target);
-  if (!other || !other.visible) return false;
-  const o = bounds(other);
-  return (
-    Math.abs(self.x - other.x) < hw + o.hw &&
-    Math.abs(self.y - other.y) < hh + o.hh
-  );
+type EvalCtx = {
+  rt: Runtime;
+  ops: { n: number };
+};
+
+function evalValue(v: Value | undefined, ctx: EvalCtx): string | number | boolean {
+  if (!v) return 0;
+  if (v.kind === "literal") return v.value;
+  return evalReporter(v.block, ctx);
 }
 
-function bounce(s: SpriteLive): void {
-  const { hw, hh } = bounds(s);
-  const maxX = STAGE_W / 2 - hw;
-  const maxY = STAGE_H / 2 - hh;
-  let bounced = false;
-  if (s.x > maxX) {
-    s.x = maxX;
-    s.direction = -s.direction;
-    bounced = true;
-  } else if (s.x < -maxX) {
-    s.x = -maxX;
-    s.direction = -s.direction;
-    bounced = true;
-  }
-  if (s.y > maxY) {
-    s.y = maxY;
-    s.direction = 180 - s.direction;
-    bounced = true;
-  } else if (s.y < -maxY) {
-    s.y = -maxY;
-    s.direction = 180 - s.direction;
-    bounced = true;
-  }
-  if (bounced) s.direction = wrapDir(s.direction);
+function requireEntity(rt: Runtime): EntityLive | null {
+  return rt.current;
 }
 
-function findVar(rt: Runtime, name: string): VarLive | undefined {
+function findVar(rt: Runtime, name: string): Variable | undefined {
   return rt.variables.find((v) => v.name === name || v.id === name);
 }
 
-function evalValue(
-  v: Value | undefined,
-  sprite: SpriteLive,
-  rt: Runtime,
-): string | number | boolean {
-  if (!v) return 0;
-  if (v.kind === "literal") return v.value;
-  return evalReporter(v.block, sprite, rt);
+function touchingTag(self: EntityLive, tag: string, rt: Runtime): boolean {
+  const a = bounds(self);
+  for (const o of rt.entities) {
+    if (o.id === self.id || !o.visible || o.tag !== tag) continue;
+    const b = bounds(o);
+    if (
+      Math.abs(self.x - o.x) < a.hw + b.hw &&
+      Math.abs(self.y - o.y) < a.hh + b.hh
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
-function evalReporter(
-  block: Block,
-  sprite: SpriteLive,
-  rt: Runtime,
-): string | number | boolean {
-  const a = (name: string) => evalValue(block.args[name], sprite, rt);
+function touchingEdge(self: EntityLive): boolean {
+  const { hw, hh } = bounds(self);
+  return (
+    self.x + hw >= STAGE_W / 2 ||
+    self.x - hw <= -STAGE_W / 2 ||
+    self.y + hh >= STAGE_H / 2 ||
+    self.y - hh <= -STAGE_H / 2
+  );
+}
+
+function bounceEdges(e: EntityLive): void {
+  const { hw, hh } = bounds(e);
+  const maxX = Math.max(0, STAGE_W / 2 - hw);
+  const maxY = Math.max(0, STAGE_H / 2 - hh);
+  if (e.x > maxX) {
+    e.x = maxX;
+    e.vx = -Math.abs(e.vx);
+  } else if (e.x < -maxX) {
+    e.x = -maxX;
+    e.vx = Math.abs(e.vx);
+  }
+  if (e.y > maxY) {
+    e.y = maxY;
+    e.vy = -Math.abs(e.vy);
+  } else if (e.y < -maxY) {
+    e.y = -maxY;
+    e.vy = Math.abs(e.vy);
+  }
+}
+
+function evalReporter(block: Block, ctx: EvalCtx): string | number | boolean {
+  bump(ctx);
+  const a = (name: string) => evalValue(block.args[name], ctx);
+  const e = ctx.rt.current;
   switch (block.op) {
-    case "sensing_keypressed":
-      return rt.keys.has(str(a("KEY")));
-    case "sensing_touching":
-      return touchingTarget(sprite, str(a("TARGET")), rt);
-    case "sensing_mousex":
-      return Math.round(rt.mouse.x);
-    case "sensing_mousey":
-      return Math.round(rt.mouse.y);
+    case "game_dt":
+      return ctx.rt.dt;
+    case "game_frame":
+      return ctx.rt.frame;
+    case "input_key_down":
+      return ctx.rt.input.down.has(str(a("KEY")));
+    case "input_key_pressed":
+      return ctx.rt.input.pressed.has(str(a("KEY")));
+    case "input_mouse_x":
+      return Math.round(ctx.rt.input.mouse.x);
+    case "input_mouse_y":
+      return Math.round(ctx.rt.input.mouse.y);
+    case "entity_name":
+      return e?.name ?? "";
+    case "entity_tag":
+      return e?.tag ?? "";
+    case "motion_x":
+      return e?.x ?? 0;
+    case "motion_y":
+      return e?.y ?? 0;
+    case "motion_vx":
+      return e?.vx ?? 0;
+    case "motion_vy":
+      return e?.vy ?? 0;
+    case "sensing_touching_tag":
+      return e ? touchingTag(e, str(a("TAG")), ctx.rt) : false;
+    case "sensing_touching_edge":
+      return e ? touchingEdge(e) : false;
     case "operator_add":
       return num(a("A")) + num(a("B"));
     case "operator_sub":
@@ -225,200 +241,235 @@ function evalReporter(
       return truthy(a("A")) || truthy(a("B"));
     case "operator_not":
       return !truthy(a("A"));
-    case "data_variable": {
-      const v = findVar(rt, str(a("VAR")));
-      return v?.value ?? 0;
-    }
+    case "data_variable":
+      return findVar(ctx.rt, str(a("VAR")))?.value ?? 0;
     default:
       return 0;
   }
 }
 
-let audioCtx: AudioContext | null = null;
-function beep(freq: number, secs: number): void {
-  try {
-    audioCtx ??= new AudioContext();
-    const ctx = audioCtx;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = Math.max(40, Math.min(2000, freq));
-    osc.type = "square";
-    gain.gain.value = 0.08;
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + Math.max(0.02, secs));
-  } catch {
-    /* ignore */
+function bump(ctx: EvalCtx): void {
+  ctx.ops.n += 1;
+  if (ctx.ops.n > MAX_OPS) {
+    throw new Error("script too long (possible infinite loop)");
   }
 }
 
-async function exec(
-  block: Block,
-  sprite: SpriteLive,
-  rt: Runtime,
-): Promise<void> {
-  if (!rt.running) return;
-  const a = (name: string) => evalValue(block.args[name], sprite, rt);
-  switch (block.op) {
-    case "event_flag":
-    case "event_clicked":
-    case "event_key":
-      break;
-    case "motion_move": {
-      const steps = num(a("STEPS"));
-      sprite.x += steps * Math.sin(deg2rad(sprite.direction));
-      sprite.y += steps * Math.cos(deg2rad(sprite.direction));
-      await nextFrame(rt.abort.signal);
-      break;
-    }
-    case "motion_turn_right":
-      sprite.direction = wrapDir(sprite.direction + num(a("DEGREES")));
-      await nextFrame(rt.abort.signal);
-      break;
-    case "motion_turn_left":
-      sprite.direction = wrapDir(sprite.direction - num(a("DEGREES")));
-      await nextFrame(rt.abort.signal);
-      break;
-    case "motion_point":
-      sprite.direction = wrapDir(num(a("DIRECTION")));
-      break;
-    case "motion_gotoxy":
-      sprite.x = num(a("X"));
-      sprite.y = num(a("Y"));
-      await nextFrame(rt.abort.signal);
-      break;
-    case "motion_goto_random":
-      sprite.x = Math.round(Math.random() * STAGE_W - STAGE_W / 2);
-      sprite.y = Math.round(Math.random() * STAGE_H - STAGE_H / 2);
-      await nextFrame(rt.abort.signal);
-      break;
-    case "motion_changex":
-      sprite.x += num(a("DX"));
-      await nextFrame(rt.abort.signal);
-      break;
-    case "motion_changey":
-      sprite.y += num(a("DY"));
-      await nextFrame(rt.abort.signal);
-      break;
-    case "motion_setx":
-      sprite.x = num(a("X"));
-      break;
-    case "motion_sety":
-      sprite.y = num(a("Y"));
-      break;
-    case "motion_bounce":
-      bounce(sprite);
-      break;
-    case "looks_say": {
-      const secs = Math.max(0, num(a("SECS")));
-      sprite.say = { text: str(a("MESSAGE")), until: performance.now() + secs * 1000 };
-      await sleep(secs * 1000, rt.abort.signal);
-      if (sprite.say && sprite.say.until <= performance.now() + 16) sprite.say = null;
-      break;
-    }
-    case "looks_show":
-      sprite.visible = true;
-      break;
-    case "looks_hide":
-      sprite.visible = false;
-      break;
-    case "looks_setsizeto":
-      sprite.size = Math.max(5, Math.min(400, num(a("SIZE"))));
-      break;
-    case "looks_changesize":
-      sprite.size = Math.max(5, Math.min(400, sprite.size + num(a("SIZE"))));
-      break;
-    case "looks_nextcostume":
-      sprite.costumeIndex = (sprite.costumeIndex + 1) % sprite.costumes.length;
-      break;
-    case "sound_beep":
-      beep(num(a("FREQ")), num(a("SECS")));
-      await sleep(Math.max(0, num(a("SECS"))) * 1000, rt.abort.signal);
-      break;
-    case "control_wait":
-      await sleep(Math.max(0, num(a("SECS"))) * 1000, rt.abort.signal);
-      break;
-    case "control_repeat": {
-      const n = Math.floor(Math.max(0, num(a("TIMES"))));
-      for (let i = 0; i < n && rt.running; i++) {
-        await runStack(block.substk, sprite, rt);
-        await nextFrame(rt.abort.signal);
-      }
-      break;
-    }
-    case "control_forever":
-      while (rt.running) {
-        await runStack(block.substk, sprite, rt);
-        await nextFrame(rt.abort.signal);
-      }
-      break;
-    case "control_if":
-      if (truthy(a("COND"))) await runStack(block.substk, sprite, rt);
-      break;
-    case "control_if_else":
-      if (truthy(a("COND"))) await runStack(block.substk, sprite, rt);
-      else await runStack(block.substk2, sprite, rt);
-      break;
-    case "control_stop":
-      rt.running = false;
-      rt.abort.abort();
-      rt.onStop?.();
-      break;
-    case "data_set": {
-      const v = findVar(rt, str(a("VAR")));
-      if (v) v.value = num(a("VALUE"));
-      break;
-    }
-    case "data_change": {
-      const v = findVar(rt, str(a("VAR")));
-      if (v) v.value += num(a("VALUE"));
-      break;
-    }
-    case "data_show": {
-      const v = findVar(rt, str(a("VAR")));
-      if (v) v.visible = true;
-      break;
-    }
-    case "data_hide": {
-      const v = findVar(rt, str(a("VAR")));
-      if (v) v.visible = false;
-      break;
-    }
-    default:
-      break;
-  }
-}
-
-async function runStack(
-  block: Block | undefined,
-  sprite: SpriteLive,
-  rt: Runtime,
-): Promise<void> {
+function execStack(block: Block | undefined, ctx: EvalCtx): void {
   let cur: Block | undefined = block;
-  while (cur && rt.running) {
-    await exec(cur, sprite, rt);
+  while (cur && ctx.rt.running) {
+    execBlock(cur, ctx);
     cur = cur.next;
   }
 }
 
-function liveFrom(s: Sprite): SpriteLive {
-  return {
-    id: s.id,
-    name: s.name,
-    x: s.x,
-    y: s.y,
-    direction: s.direction,
-    size: s.size,
-    visible: s.visible,
-    costumeIndex: s.costumeIndex,
-    costumes: s.costumes,
-    say: null,
-  };
+function execBlock(block: Block, ctx: EvalCtx): void {
+  bump(ctx);
+  if (!ctx.rt.running) return;
+  const a = (name: string) => evalValue(block.args[name], ctx);
+  const rt = ctx.rt;
+
+  switch (block.op) {
+    case "game_stop":
+      rt.running = false;
+      rt.onStop?.();
+      return;
+    case "entity_with": {
+      const name = str(a("NAME"));
+      const ent = rt.entities.find((e) => e.name === name);
+      if (!ent) return;
+      const prev = rt.current;
+      rt.current = ent;
+      execStack(block.substk, ctx);
+      rt.current = prev;
+      return;
+    }
+    case "entity_foreach": {
+      const tag = str(a("TAG"));
+      const list = rt.entities.filter((e) => e.tag === tag);
+      const prev = rt.current;
+      for (const ent of list) {
+        if (!rt.running) break;
+        if (rt.pendingDestroy.has(ent.id)) continue;
+        rt.current = ent;
+        execStack(block.substk, ctx);
+      }
+      rt.current = prev;
+      return;
+    }
+    case "entity_destroy": {
+      const e = requireEntity(rt);
+      if (e) rt.pendingDestroy.add(e.id);
+      return;
+    }
+    case "motion_setx": {
+      const e = requireEntity(rt);
+      if (e) e.x = num(a("X"));
+      return;
+    }
+    case "motion_sety": {
+      const e = requireEntity(rt);
+      if (e) e.y = num(a("Y"));
+      return;
+    }
+    case "motion_changex": {
+      const e = requireEntity(rt);
+      if (e) e.x += num(a("DX"));
+      return;
+    }
+    case "motion_changey": {
+      const e = requireEntity(rt);
+      if (e) e.y += num(a("DY"));
+      return;
+    }
+    case "motion_set_vx": {
+      const e = requireEntity(rt);
+      if (e) e.vx = num(a("VX"));
+      return;
+    }
+    case "motion_set_vy": {
+      const e = requireEntity(rt);
+      if (e) e.vy = num(a("VY"));
+      return;
+    }
+    case "motion_change_vx": {
+      const e = requireEntity(rt);
+      if (e) e.vx += num(a("DVX"));
+      return;
+    }
+    case "motion_change_vy": {
+      const e = requireEntity(rt);
+      if (e) e.vy += num(a("DVY"));
+      return;
+    }
+    case "motion_apply_velocity": {
+      const e = requireEntity(rt);
+      if (e) {
+        e.x += e.vx * rt.dt;
+        e.y += e.vy * rt.dt;
+      }
+      return;
+    }
+    case "motion_gotoxy": {
+      const e = requireEntity(rt);
+      if (e) {
+        e.x = num(a("X"));
+        e.y = num(a("Y"));
+      }
+      return;
+    }
+    case "motion_point": {
+      const e = requireEntity(rt);
+      if (e) e.direction = wrapDir(num(a("DIRECTION")));
+      return;
+    }
+    case "motion_bounce_edges": {
+      const e = requireEntity(rt);
+      if (e) bounceEdges(e);
+      return;
+    }
+    case "looks_show": {
+      const e = requireEntity(rt);
+      if (e) e.visible = true;
+      return;
+    }
+    case "looks_hide": {
+      const e = requireEntity(rt);
+      if (e) e.visible = false;
+      return;
+    }
+    case "looks_setsizeto": {
+      const e = requireEntity(rt);
+      if (e) e.size = Math.max(5, Math.min(400, num(a("SIZE"))));
+      return;
+    }
+    case "looks_nextcostume": {
+      const e = requireEntity(rt);
+      if (e && e.costumes.length > 0) {
+        e.costumeIndex = (e.costumeIndex + 1) % e.costumes.length;
+      }
+      return;
+    }
+    case "draw_text":
+      rt.overlays.push({
+        x: num(a("X")),
+        y: num(a("Y")),
+        text: str(a("TEXT")),
+      });
+      return;
+    case "draw_clear_overlay":
+      rt.overlays = [];
+      return;
+    case "control_if":
+      if (truthy(a("COND"))) execStack(block.substk, ctx);
+      return;
+    case "control_if_else":
+      if (truthy(a("COND"))) execStack(block.substk, ctx);
+      else execStack(block.substk2, ctx);
+      return;
+    case "control_repeat": {
+      const n = Math.floor(Math.max(0, Math.min(10_000, num(a("TIMES")))));
+      for (let i = 0; i < n && rt.running; i++) {
+        execStack(block.substk, ctx);
+      }
+      return;
+    }
+    case "data_set": {
+      const v = findVar(rt, str(a("VAR")));
+      if (v) v.value = num(a("VALUE"));
+      return;
+    }
+    case "data_change": {
+      const v = findVar(rt, str(a("VAR")));
+      if (v) v.value += num(a("VALUE"));
+      return;
+    }
+    case "data_show": {
+      const v = findVar(rt, str(a("VAR")));
+      if (v) v.visible = true;
+      return;
+    }
+    case "data_hide": {
+      const v = findVar(rt, str(a("VAR")));
+      if (v) v.visible = false;
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+function runScripts(scripts: Script[], rt: Runtime): void {
+  const ctx: EvalCtx = { rt, ops: { n: 0 } };
+  try {
+    for (const s of scripts) {
+      if (!rt.running) break;
+      execStack(s.top, ctx);
+    }
+  } catch (err) {
+    console.error(err);
+    rt.running = false;
+    rt.onStop?.();
+  }
+}
+
+function flushDestroy(rt: Runtime): void {
+  if (rt.pendingDestroy.size === 0) return;
+  rt.entities = rt.entities.filter((e) => !rt.pendingDestroy.has(e.id));
+  if (rt.current && rt.pendingDestroy.has(rt.current.id)) rt.current = null;
+  rt.pendingDestroy.clear();
+}
+
+function advanceInput(input: InputState): void {
+  input.pressed.clear();
+  for (const k of input.down) {
+    if (!input.prev.has(k)) input.pressed.add(k);
+  }
+  input.prev = new Set(input.down);
 }
 
 export class Engine {
   private rt: Runtime | null = null;
-  private listeners: (() => void)[] = [];
 
   get running(): boolean {
     return Boolean(this.rt?.running);
@@ -427,133 +478,91 @@ export class Engine {
   snapshot(): EngineSnapshot | null {
     if (!this.rt) return null;
     return {
-      sprites: this.rt.sprites,
+      entities: this.rt.entities,
       variables: this.rt.variables,
       backdrop: this.rt.project.backdrop,
-      mouse: { x: this.rt.mouse.x, y: this.rt.mouse.y },
+      mouse: {
+        x: this.rt.input.mouse.x,
+        y: this.rt.input.mouse.y,
+      },
+      overlays: this.rt.overlays,
+      frame: this.rt.frame,
     };
   }
 
-  setMouse(scratchX: number, scratchY: number, down: boolean): void {
+  setMouse(x: number, y: number, down: boolean): void {
     if (!this.rt) return;
-    this.rt.mouse.x = scratchX;
-    this.rt.mouse.y = scratchY;
-    this.rt.mouse.down = down;
+    this.rt.input.mouse = { x, y, down };
   }
 
   keyDown(key: string): void {
-    if (!this.rt?.running) return;
-    this.rt.keys.add(key);
-    this.spawnHats("event_key", (b) => {
-      const v = b.args.KEY;
-      return v?.kind === "literal" && v.value === key;
-    });
+    this.rt?.input.down.add(key);
   }
 
   keyUp(key: string): void {
-    this.rt?.keys.delete(key);
-  }
-
-  clickSprite(id: string): void {
-    if (!this.rt?.running) return;
-    const sprite = this.rt.project.sprites.find((s) => s.id === id);
-    const live = this.rt.sprites.find((s) => s.id === id);
-    if (!sprite || !live) return;
-    for (const script of sprite.scripts) {
-      if (script.top.op === "event_clicked") {
-        void this.safeRun(script.top, live);
-      }
-    }
+    this.rt?.input.down.delete(key);
   }
 
   start(project: Project, onStop: () => void): void {
     this.stop(false);
-    const abort = new AbortController();
+    const input: InputState = {
+      down: new Set(),
+      pressed: new Set(),
+      prev: new Set(),
+      mouse: { x: 0, y: 0, down: false },
+    };
     const rt: Runtime = {
       running: true,
-      abort,
-      keys: new Set(),
-      mouse: { x: 0, y: 0, down: false },
-      sprites: project.sprites.map(liveFrom),
-      variables: project.variables.map((v) => ({ ...v })),
       project,
-      startMs: performance.now(),
-      onStop: () => {
-        onStop();
-        this.fire();
-      },
+      entities: project.entities.map(cloneEntity),
+      variables: project.variables.map((v) => ({ ...v })),
+      current: null,
+      input,
+      frame: 0,
+      dt: FIXED_DT,
+      overlays: [],
+      pendingDestroy: new Set(),
+      onStop,
+      raf: 0,
     };
     this.rt = rt;
-    this.fire();
-    this.spawnHats("event_flag");
+
+    runScripts(project.boot, rt);
+    flushDestroy(rt);
+
+    const tick = () => {
+      if (!this.rt || this.rt !== rt || !rt.running) return;
+      rt.dt = FIXED_DT;
+      rt.frame += 1;
+      advanceInput(rt.input);
+      rt.overlays = [];
+      runScripts(project.update, rt);
+      flushDestroy(rt);
+      runScripts(project.draw, rt);
+      if (rt.running) {
+        rt.raf = requestAnimationFrame(tick);
+      }
+    };
+    rt.raf = requestAnimationFrame(tick);
   }
 
   stop(writeBack = true): Partial<Project> | null {
     const rt = this.rt;
     if (!rt) return null;
     rt.running = false;
-    if (!rt.abort.signal.aborted) rt.abort.abort();
+    cancelAnimationFrame(rt.raf);
     let patch: Partial<Project> | null = null;
     if (writeBack) {
       patch = {
-        sprites: rt.project.sprites.map((s) => {
-          const live = rt.sprites.find((l) => l.id === s.id);
-          if (!live) return s;
-          return {
-            ...s,
-            x: live.x,
-            y: live.y,
-            direction: live.direction,
-            size: live.size,
-            visible: live.visible,
-            costumeIndex: live.costumeIndex,
-          };
-        }),
+        entities: rt.entities.map((e) => ({
+          ...e,
+          costumes: e.costumes.map((c) => ({ ...c })),
+        })),
         variables: rt.variables.map((v) => ({ ...v })),
       };
     }
     this.rt = null;
-    this.fire();
     return patch;
-  }
-
-  subscribe(fn: () => void): () => void {
-    this.listeners.push(fn);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== fn);
-    };
-  }
-
-  private fire(): void {
-    for (const l of this.listeners) l();
-  }
-
-  private spawnHats(
-    op: Block["op"],
-    pred?: (b: Block) => boolean,
-  ): void {
-    const rt = this.rt;
-    if (!rt) return;
-    for (const sprite of rt.project.sprites) {
-      const live = rt.sprites.find((s) => s.id === sprite.id);
-      if (!live) continue;
-      for (const script of sprite.scripts) {
-        if (script.top.op !== op) continue;
-        if (pred && !pred(script.top)) continue;
-        void this.safeRun(script.top, live);
-      }
-    }
-  }
-
-  private async safeRun(block: Block, sprite: SpriteLive): Promise<void> {
-    const rt = this.rt;
-    if (!rt) return;
-    try {
-      await runStack(block, sprite, rt);
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      console.error(err);
-    }
   }
 }
 
@@ -562,18 +571,4 @@ const g = globalThis as typeof globalThis & { __monoEngine?: Engine };
 export function getEngine(): Engine {
   g.__monoEngine ??= new Engine();
   return g.__monoEngine;
-}
-
-export function hitTest(
-  sprites: SpriteLive[],
-  x: number,
-  y: number,
-): SpriteLive | undefined {
-  for (let i = sprites.length - 1; i >= 0; i--) {
-    const s = sprites[i]!;
-    if (!s.visible) continue;
-    const { hw, hh } = bounds(s);
-    if (Math.abs(s.x - x) <= hw && Math.abs(s.y - y) <= hh) return s;
-  }
-  return undefined;
 }

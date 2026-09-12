@@ -92,15 +92,19 @@
   min-height: 20px;
   width: 100%;
 }
+
+.blk-arm {
   width: 12px;
   background: var(--blk);
   border-radius: 0 0 0 4px;
+  flex-shrink: 0;
 }
 
 .blk-mouth {
   min-width: 64px;
   min-height: 16px;
-  padding: 2px 0 2px 0;
+  padding: 2px 0;
+  flex: 1;
 }
 
 .blk-placeholder {
@@ -129,14 +133,6 @@
   border-radius: 0 0 7px 7px;
   z-index: 2;
   pointer-events: auto;
-}
-
-.blk-hat .blk-bump,
-.blk-stack .blk-bump,
-.blk-cap .blk-bump,
-.blk-c .blk-bump,
-.blk-c2 .blk-bump {
-  /* keep */
 }
 
 .blk-notch {

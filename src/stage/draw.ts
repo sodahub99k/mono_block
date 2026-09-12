@@ -1,5 +1,5 @@
-import { STAGE_H, STAGE_W, type BackdropId } from "../project/types";
-import type { EngineSnapshot, SpriteLive } from "../runtime/engine";
+import { STAGE_H, STAGE_W, type BackdropId, type Project } from "../project/types";
+import type { EngineSnapshot, EntityLive } from "../runtime/engine";
 import { drawCostume } from "./costumes";
 
 export function scratchToCanvas(x: number, y: number): { x: number; y: number } {
@@ -89,7 +89,12 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, id: BackdropId): void {
   ctx.stroke();
 }
 
-function cloud(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+function cloud(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  s: number,
+): void {
   ctx.beginPath();
   ctx.arc(x, y, 16 * s, 0, Math.PI * 2);
   ctx.arc(x + 18 * s, y + 4 * s, 20 * s, 0, Math.PI * 2);
@@ -97,7 +102,7 @@ function cloud(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): 
   ctx.fill();
 }
 
-function drawSprite(ctx: CanvasRenderingContext2D, s: SpriteLive): void {
+function drawEntity(ctx: CanvasRenderingContext2D, s: EntityLive): void {
   if (!s.visible) return;
   const { x, y } = scratchToCanvas(s.x, s.y);
   ctx.save();
@@ -106,40 +111,6 @@ function drawSprite(ctx: CanvasRenderingContext2D, s: SpriteLive): void {
   const costume = s.costumes[s.costumeIndex] ?? s.costumes[0];
   if (costume) drawCostume(ctx, costume.kind, s.size);
   ctx.restore();
-
-  if (s.say) {
-    drawSay(ctx, x, y - 48 * (s.size / 100), s.say.text);
-  }
-}
-
-function drawSay(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  text: string,
-): void {
-  ctx.font = "13px system-ui, sans-serif";
-  const pad = 8;
-  const w = Math.min(220, Math.max(48, ctx.measureText(text).width + pad * 2));
-  const h = 28;
-  const bx = x + 18;
-  const by = y - 10;
-  ctx.fillStyle = "#fff";
-  ctx.strokeStyle = "#2b2f38";
-  ctx.lineWidth = 2;
-  roundRect(ctx, bx, by, w, h, 10);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(bx + 10, by + h);
-  ctx.lineTo(x + 8, y + 8);
-  ctx.lineTo(bx + 22, by + h);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = "#1b1e27";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, bx + pad, by + h / 2, w - pad * 2);
 }
 
 function roundRect(
@@ -181,33 +152,44 @@ function drawMonitors(
   }
 }
 
+function drawOverlays(
+  ctx: CanvasRenderingContext2D,
+  snap: EngineSnapshot,
+): void {
+  ctx.font = "14px system-ui, sans-serif";
+  ctx.fillStyle = "#fff";
+  ctx.textBaseline = "top";
+  for (const o of snap.overlays) {
+    const { x, y } = scratchToCanvas(o.x, o.y);
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    const tw = ctx.measureText(o.text).width + 10;
+    roundRect(ctx, x - 4, y - 2, tw, 20, 4);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(o.text, x, y);
+  }
+}
+
 export function drawFrame(
   ctx: CanvasRenderingContext2D,
   snap: EngineSnapshot,
 ): void {
   drawBackdrop(ctx, snap.backdrop);
-  for (const s of snap.sprites) drawSprite(ctx, s);
+  for (const s of snap.entities) drawEntity(ctx, s);
+  drawOverlays(ctx, snap);
   drawMonitors(ctx, snap);
 }
 
-export function snapshotFromProject(
-  project: import("../project/types").Project,
-): EngineSnapshot {
+export function snapshotFromProject(project: Project): EngineSnapshot {
   return {
     backdrop: project.backdrop,
     mouse: { x: 0, y: 0 },
     variables: project.variables,
-    sprites: project.sprites.map((s) => ({
-      id: s.id,
-      name: s.name,
-      x: s.x,
-      y: s.y,
-      direction: s.direction,
-      size: s.size,
-      visible: s.visible,
-      costumeIndex: s.costumeIndex,
-      costumes: s.costumes,
-      say: null,
+    entities: project.entities.map((e) => ({
+      ...e,
+      costumes: e.costumes.map((c) => ({ ...c })),
     })),
+    overlays: [],
+    frame: 0,
   };
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { CostumeKind, Sprite } from "../project/types";
-import { drawCostume } from "../stage/costumes";
+import type { CostumeKind, Entity } from "../project/types";
+import { drawCostume } from "./costumes";
 
 const KINDS: { kind: CostumeKind; label: string }[] = [
   { kind: "cat", label: "ネコ" },
@@ -12,15 +12,15 @@ const KINDS: { kind: CostumeKind; label: string }[] = [
 ];
 
 type Props = {
-  sprites: Sprite[];
+  entities: Entity[];
   selectedId: string;
   onSelect: (id: string) => void;
   onAdd: (kind: CostumeKind) => void;
   onDelete: (id: string) => void;
 };
 
-export function SpritePane({
-  sprites,
+export function EntityPane({
+  entities,
   selectedId,
   onSelect,
   onAdd,
@@ -28,18 +28,19 @@ export function SpritePane({
 }: Props) {
   return (
     <div className="sprite-pane">
-      <div className="pane-label">スプライト</div>
+      <div className="pane-label">エンティティ（データ）</div>
       <div className="sprite-grid">
-        {sprites.map((s) => (
+        {entities.map((s) => (
           <button
             key={s.id}
             type="button"
             className={`sprite-card ${s.id === selectedId ? "is-selected" : ""}`}
             onClick={() => onSelect(s.id)}
           >
-            <Thumb sprite={s} />
+            <Thumb entity={s} />
             <span className="sprite-name">{s.name}</span>
-            {sprites.length > 1 && (
+            <span className="entity-tag">{s.tag}</span>
+            {entities.length > 1 && (
               <span
                 className="sprite-del"
                 role="button"
@@ -78,7 +79,7 @@ export function SpritePane({
   );
 }
 
-function Thumb({ sprite }: { sprite: Sprite }) {
+function Thumb({ entity }: { entity: Entity }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current;
@@ -87,9 +88,10 @@ function Thumb({ sprite }: { sprite: Sprite }) {
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.save();
     ctx.translate(c.width / 2, c.height / 2);
-    const costume = sprite.costumes[sprite.costumeIndex] ?? sprite.costumes[0];
+    const costume =
+      entity.costumes[entity.costumeIndex] ?? entity.costumes[0];
     if (costume) drawCostume(ctx, costume.kind, 70);
     ctx.restore();
-  }, [sprite]);
+  }, [entity]);
   return <canvas ref={ref} width={72} height={56} className="sprite-thumb" />;
 }
