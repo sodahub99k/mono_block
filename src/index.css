@@ -1,0 +1,47 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  font-family:
+    "Hiragino Sans",
+    "Noto Sans JP",
+    Inter,
+    system-ui,
+    sans-serif;
+  line-height: 1.45;
+  font-weight: 400;
+  color: #e8eaed;
+  background: #0f1117;
+  --bg: #0f1117;
+  --panel: #151821;
+  --panel-2: #1b2030;
+  --line: #2a3144;
+  --text: #e8eaed;
+  --muted: #9aa3b2;
+  --accent: #4c97ff;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
