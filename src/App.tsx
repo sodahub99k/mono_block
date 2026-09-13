@@ -2,16 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import { BlockEditor } from "./blocks/BlockEditor";
 import { Toolbar } from "./ide/Toolbar";
 import { Inspector } from "./ide/Inspector";
+import { StructPane } from "./ide/StructPane";
 import {
   bouncingProject,
   emptyEntity,
   emptyProject,
   EXAMPLES,
 } from "./project/examples";
-import { downloadProject, initialProject, saveProject } from "./project/storage";
+import {
+  downloadProject,
+  initialProject,
+  migrateProject,
+  saveProject,
+} from "./project/storage";
 import type {
   BackdropId,
   CostumeKind,
+  EditorTarget,
   Entity,
   PhaseId,
   Project,
@@ -23,7 +30,7 @@ import { EntityPane } from "./stage/EntityPane";
 import { Stage } from "./stage/Stage";
 import "./App.css";
 
-const HINT_KEY = "mono_block_hint_v2";
+const HINT_KEY = "mono_block_hint_v3";
 
 const COSTUME_LABEL: Record<CostumeKind, string> = {
   cat: "ネコ",
@@ -46,14 +53,39 @@ function mergeEnginePatch(
   };
 }
 
-function phaseScripts(project: Project, phase: PhaseId): Script[] {
-  return project[phase];
+function resolveScripts(
+  project: Project,
+  target: EditorTarget,
+): { scripts: Script[]; palettePhase: PhaseId | "method" } {
+  if (target.kind === "phase") {
+    return { scripts: project[target.phase], palettePhase: target.phase };
+  }
+  const st = project.structs.find((s) => s.id === target.structId);
+  const method = st?.methods.find((m) => m.id === target.methodId);
+  return { scripts: method?.scripts ?? [], palettePhase: "method" };
+}
+
+function methodLabel(project: Project, target: EditorTarget): string | null {
+  if (target.kind !== "method") return null;
+  const st = project.structs.find((s) => s.id === target.structId);
+  const method = st?.methods.find((m) => m.id === target.methodId);
+  if (!st || !method) return null;
+  return `impl ${st.name}::${method.name}`;
 }
 
 export default function App() {
   const [project, setProject] = useState<Project>(initialProject);
   const [entityId, setEntityId] = useState(() => project.entities[0]!.id);
-  const [phase, setPhase] = useState<PhaseId>("update");
+  const [target, setTarget] = useState<EditorTarget>({
+    kind: "phase",
+    phase: "update",
+  });
+  const [structId, setStructId] = useState<string | null>(
+    () => project.structs[0]?.id ?? null,
+  );
+  const [methodId, setMethodId] = useState<string | null>(
+    () => project.structs[0]?.methods[0]?.id ?? null,
+  );
   const [running, setRunning] = useState(false);
   const [hint, setHint] = useState(
     () => localStorage.getItem(HINT_KEY) !== "1",
@@ -95,6 +127,8 @@ export default function App() {
   const entity =
     project.entities.find((s) => s.id === entityId) ?? project.entities[0];
 
+  const { scripts, palettePhase } = resolveScripts(project, target);
+
   function patchProject(fn: (p: Project) => Project): void {
     setProject((p) => fn(p));
   }
@@ -121,15 +155,45 @@ export default function App() {
     projectRef.current = next;
     setProject(next);
     setEntityId(next.entities[0]?.id ?? "");
-    setPhase("update");
+    setStructId(next.structs[0]?.id ?? null);
+    setMethodId(next.structs[0]?.methods[0]?.id ?? null);
+    setTarget({ kind: "phase", phase: "update" });
+  }
+
+  function selectMethod(sid: string, mid: string): void {
+    setStructId(sid);
+    setMethodId(mid);
+    setTarget({ kind: "method", structId: sid, methodId: mid });
+  }
+
+  function openImpl(): void {
+    let sid = structId;
+    let mid = methodId;
+    const st =
+      project.structs.find((s) => s.id === sid) ?? project.structs[0];
+    if (!st) {
+      window.alert("先に struct を追加してください（右の struct / impl）");
+      return;
+    }
+    sid = st.id;
+    mid = st.methods.find((m) => m.id === mid)?.id ?? st.methods[0]?.id ?? null;
+    setStructId(sid);
+    if (mid) {
+      setMethodId(mid);
+      setTarget({ kind: "method", structId: sid, methodId: mid });
+    } else {
+      window.alert("メソッドを追加してください");
+    }
   }
 
   return (
     <div className="ide">
       <Toolbar
         running={running}
-        phase={phase}
-        onPhase={setPhase}
+        target={target}
+        methodLabel={methodLabel(project, target)}
+        onPhase={(p) => setTarget({ kind: "phase", phase: p })}
+        onImpl={openImpl}
         onGreenFlag={greenFlag}
         onStop={() => stopEngine(true)}
         onExample={(id) => {
@@ -144,13 +208,9 @@ export default function App() {
           fileBusy.current = true;
           void file.text().then((text) => {
             try {
-              const data = JSON.parse(text) as Project;
-              if (
-                data.version !== 2 ||
-                !Array.isArray(data.entities) ||
-                data.entities.length === 0
-              ) {
-                window.alert("v2 プロジェクト形式が必要です");
+              const data = migrateProject(JSON.parse(text));
+              if (!data) {
+                window.alert("v2/v3 プロジェクト形式が必要です");
                 return;
               }
               loadProject(data);
@@ -170,10 +230,27 @@ export default function App() {
 
       <BlockEditor
         project={project}
-        phase={phase}
-        scripts={phaseScripts(project, phase)}
-        onChangeScripts={(scripts: Script[]) => {
-          patchProject((p) => ({ ...p, [phase]: scripts }));
+        phase={palettePhase}
+        scripts={scripts}
+        onChangeScripts={(nextScripts: Script[]) => {
+          if (target.kind === "phase") {
+            patchProject((p) => ({ ...p, [target.phase]: nextScripts }));
+            return;
+          }
+          patchProject((p) => ({
+            ...p,
+            structs: p.structs.map((s) => {
+              if (s.id !== target.structId) return s;
+              return {
+                ...s,
+                methods: s.methods.map((m) =>
+                  m.id === target.methodId
+                    ? { ...m, scripts: nextScripts }
+                    : m,
+                ),
+              };
+            }),
+          }));
         }}
         onAddVariable={(name) => {
           patchProject((p) => {
@@ -222,8 +299,37 @@ export default function App() {
             if (entityId === id) setEntityId(remaining[0]!.id);
           }}
         />
+        <StructPane
+          structs={project.structs}
+          selectedStructId={structId}
+          selectedMethodId={methodId}
+          onSelectStruct={setStructId}
+          onSelectMethod={selectMethod}
+          onChange={(structs) => {
+            patchProject((p) => {
+              const entities = p.entities.map((e) => {
+                if (!e.structName) return e;
+                const old = p.structs.find((s) => s.name === e.structName);
+                if (!old) return e;
+                const next = structs.find((s) => s.id === old.id);
+                if (!next) return { ...e, structName: null, fields: {} };
+                if (next.name === e.structName) return e;
+                return { ...e, structName: next.name };
+              });
+              return { ...p, structs, entities };
+            });
+            if (target.kind === "method") {
+              const st = structs.find((s) => s.id === target.structId);
+              const m = st?.methods.find((x) => x.id === target.methodId);
+              if (!st || !m) {
+                setTarget({ kind: "phase", phase: "update" });
+              }
+            }
+          }}
+        />
         <Inspector
           entity={entity}
+          structs={project.structs}
           backdrop={project.backdrop}
           onBackdrop={(id: BackdropId) =>
             patchProject((p) => ({ ...p, backdrop: id }))

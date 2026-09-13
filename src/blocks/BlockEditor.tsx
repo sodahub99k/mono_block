@@ -10,7 +10,7 @@ import {
   isReporter,
 } from "./catalog";
 import type { Opcode } from "../project/types";
-import type { Block, Project, Script } from "../project/types";
+import type { Block, PhaseId, Project, Script } from "../project/types";
 import { nid } from "../project/types";
 import {
   attachTo,
@@ -35,7 +35,7 @@ type Ghost = {
 
 type Props = {
   project: Project;
-  phase: import("../project/types").PhaseId;
+  phase: PhaseId | "method";
   scripts: Script[];
   onChangeScripts: (scripts: Script[]) => void;
   onAddVariable: (name: string) => void;

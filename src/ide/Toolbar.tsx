@@ -1,10 +1,12 @@
 import { EXAMPLES } from "../project/examples";
-import type { PhaseId } from "../project/types";
+import type { EditorTarget, PhaseId } from "../project/types";
 
 type Props = {
   running: boolean;
-  phase: PhaseId;
+  target: EditorTarget;
+  methodLabel: string | null;
   onPhase: (p: PhaseId) => void;
+  onImpl: () => void;
   onGreenFlag: () => void;
   onStop: () => void;
   onExample: (id: string) => void;
@@ -23,8 +25,10 @@ const PHASES: { id: PhaseId; label: string; hint: string }[] = [
 
 export function Toolbar({
   running,
-  phase,
+  target,
+  methodLabel,
   onPhase,
+  onImpl,
   onGreenFlag,
   onStop,
   onExample,
@@ -34,6 +38,8 @@ export function Toolbar({
   showHint,
   onDismissHint,
 }: Props) {
+  const implActive = target.kind === "method";
+
   return (
     <header className="toolbar">
       <div className="brand">
@@ -54,15 +60,28 @@ export function Toolbar({
             key={p.id}
             type="button"
             role="tab"
-            aria-selected={phase === p.id}
-            className={`phase-tab ${phase === p.id ? "is-active" : ""}`}
+            aria-selected={target.kind === "phase" && target.phase === p.id}
+            className={`phase-tab ${target.kind === "phase" && target.phase === p.id ? "is-active" : ""}`}
             title={p.hint}
             onClick={() => onPhase(p.id)}
           >
             {p.label}
           </button>
         ))}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={implActive}
+          className={`phase-tab ${implActive ? "is-active" : ""}`}
+          title="struct の impl メソッドを編集"
+          onClick={onImpl}
+        >
+          impl
+        </button>
       </div>
+      {implActive && methodLabel && (
+        <code className="impl-badge">{methodLabel}</code>
+      )}
 
       <div className="controls">
         <button
@@ -119,8 +138,8 @@ export function Toolbar({
       </div>
       {showHint && (
         <p className="hint-bar">
-          Scratch と違い、エンティティはデータだけ。コードは boot / update /
-          draw の1本のゲームループです。
+          Rust 風に struct / impl でメソッドを書けます。エンティティに struct
+          を割り当て、update から self.メソッド() を呼びます。
           <button type="button" onClick={onDismissHint}>
             OK
           </button>

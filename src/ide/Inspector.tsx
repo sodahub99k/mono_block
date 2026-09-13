@@ -1,4 +1,10 @@
-import type { BackdropId, CostumeKind, Entity } from "../project/types";
+import type {
+  BackdropId,
+  CostumeKind,
+  Entity,
+  StructDef,
+} from "../project/types";
+import { defaultFields } from "../project/types";
 
 const BACKDROPS: { id: BackdropId; label: string }[] = [
   { id: "sky", label: "空" },
@@ -9,6 +15,7 @@ const BACKDROPS: { id: BackdropId; label: string }[] = [
 
 type Props = {
   entity: Entity | undefined;
+  structs: StructDef[];
   backdrop: BackdropId;
   onBackdrop: (id: BackdropId) => void;
   onChange: (patch: Partial<Entity>) => void;
@@ -17,12 +24,16 @@ type Props = {
 
 export function Inspector({
   entity,
+  structs,
   backdrop,
   onBackdrop,
   onChange,
   onCostume,
 }: Props) {
   if (!entity) return null;
+
+  const struct = structs.find((s) => s.name === entity.structName);
+
   return (
     <div className="inspector">
       <label>
@@ -39,6 +50,45 @@ export function Inspector({
           onChange={(e) => onChange({ tag: e.target.value })}
         />
       </label>
+      <label>
+        struct
+        <select
+          value={entity.structName ?? ""}
+          onChange={(e) => {
+            const name = e.target.value || null;
+            const def = structs.find((s) => s.name === name);
+            onChange({
+              structName: name,
+              fields: def ? { ...defaultFields(def), ...entity.fields } : {},
+            });
+          }}
+        >
+          <option value="">（なし）</option>
+          {structs.map((s) => (
+            <option key={s.id} value={s.name}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {struct &&
+        struct.fields.map((f) => (
+          <label key={f.name}>
+            self.{f.name}
+            <input
+              type="number"
+              value={entity.fields[f.name] ?? f.defaultValue}
+              onChange={(e) =>
+                onChange({
+                  fields: {
+                    ...entity.fields,
+                    [f.name]: Number(e.target.value) || 0,
+                  },
+                })
+              }
+            />
+          </label>
+        ))}
       <div className="xy">
         <label>
           x

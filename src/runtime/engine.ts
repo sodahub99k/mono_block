@@ -41,12 +41,14 @@ type Runtime = {
   dt: number;
   overlays: OverlayText[];
   pendingDestroy: Set<string>;
+  callDepth: number;
   onStop?: () => void;
   raf: number;
 };
 
 const SPRITE_HALF = 36;
 const MAX_OPS = 50_000;
+const MAX_CALL_DEPTH = 32;
 
 function num(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -87,6 +89,7 @@ function bounds(e: EntityLive): { hw: number; hh: number } {
 function cloneEntity(e: Entity): EntityLive {
   return {
     ...e,
+    fields: { ...e.fields },
     costumes: e.costumes.map((c) => ({ ...c })),
   };
 }
@@ -243,6 +246,12 @@ function evalReporter(block: Block, ctx: EvalCtx): string | number | boolean {
       return !truthy(a("A"));
     case "data_variable":
       return findVar(ctx.rt, str(a("VAR")))?.value ?? 0;
+    case "oo_field_get": {
+      const field = str(a("FIELD"));
+      return e?.fields[field] ?? 0;
+    }
+    case "oo_struct_name":
+      return e?.structName ?? "";
     default:
       return 0;
   }
@@ -434,8 +443,51 @@ function execBlock(block: Block, ctx: EvalCtx): void {
       if (v) v.visible = false;
       return;
     }
+    case "oo_field_set": {
+      const e = requireEntity(rt);
+      if (!e) return;
+      e.fields[str(a("FIELD"))] = num(a("VALUE"));
+      return;
+    }
+    case "oo_field_change": {
+      const e = requireEntity(rt);
+      if (!e) return;
+      const field = str(a("FIELD"));
+      e.fields[field] = (e.fields[field] ?? 0) + num(a("VALUE"));
+      return;
+    }
+    case "oo_call": {
+      callMethod(str(a("METHOD")), ctx);
+      return;
+    }
     default:
       return;
+  }
+}
+
+function findStruct(rt: Runtime, name: string | null) {
+  if (!name) return undefined;
+  return rt.project.structs.find((s) => s.name === name);
+}
+
+function callMethod(methodName: string, ctx: EvalCtx): void {
+  const rt = ctx.rt;
+  const e = requireEntity(rt);
+  if (!e) return;
+  const struct = findStruct(rt, e.structName);
+  const method = struct?.methods.find((m) => m.name === methodName);
+  if (!method) return;
+  if (rt.callDepth >= MAX_CALL_DEPTH) {
+    throw new Error("method call too deep (possible recursion)");
+  }
+  rt.callDepth += 1;
+  try {
+    for (const s of method.scripts) {
+      if (!rt.running) break;
+      execStack(s.top, ctx);
+    }
+  } finally {
+    rt.callDepth -= 1;
   }
 }
 
@@ -522,6 +574,7 @@ export class Engine {
       dt: FIXED_DT,
       overlays: [],
       pendingDestroy: new Set(),
+      callDepth: 0,
       onStop,
       raf: 0,
     };
@@ -556,6 +609,7 @@ export class Engine {
       patch = {
         entities: rt.entities.map((e) => ({
           ...e,
+          fields: { ...e.fields },
           costumes: e.costumes.map((c) => ({ ...c })),
         })),
         variables: rt.variables.map((v) => ({ ...v })),

@@ -4,6 +4,11 @@ export const FIXED_DT = 1 / 60;
 
 export type PhaseId = "boot" | "update" | "draw";
 
+/** Editing boot/update/draw, or an impl method body. */
+export type EditorTarget =
+  | { kind: "phase"; phase: PhaseId }
+  | { kind: "method"; structId: string; methodId: string };
+
 export type Opcode =
   // game / time
   | "game_dt"
@@ -69,7 +74,13 @@ export type Opcode =
   | "data_change"
   | "data_show"
   | "data_hide"
-  | "data_variable";
+  | "data_variable"
+  // Rust-like struct / impl (self = current entity)
+  | "oo_field_get"
+  | "oo_field_set"
+  | "oo_field_change"
+  | "oo_call"
+  | "oo_struct_name";
 
 export type Shape =
   | "stack"
@@ -107,11 +118,35 @@ export type Costume = {
   kind: CostumeKind;
 };
 
-/** Pure data — no scripts. */
+export type StructField = {
+  name: string;
+  defaultValue: number;
+};
+
+/** Like `fn name(&mut self) { ... }` — body is block scripts. */
+export type MethodDef = {
+  id: string;
+  name: string;
+  scripts: Script[];
+};
+
+/** Like `struct Name { fields... }` + `impl Name { methods... }`. */
+export type StructDef = {
+  id: string;
+  name: string;
+  fields: StructField[];
+  methods: MethodDef[];
+};
+
+/** Pure data — no scripts. May be an instance of a struct. */
 export type Entity = {
   id: string;
   name: string;
   tag: string;
+  /** Struct type name, or null if anonymous. */
+  structName: string | null;
+  /** Instance field values for the struct. */
+  fields: Record<string, number>;
   x: number;
   y: number;
   vx: number;
@@ -133,11 +168,12 @@ export type Variable = {
 export type BackdropId = "sky" | "space" | "room" | "grid";
 
 export type Project = {
-  version: 2;
+  version: 3;
   name: string;
   backdrop: BackdropId;
   entities: Entity[];
   variables: Variable[];
+  structs: StructDef[];
   boot: Script[];
   update: Script[];
   draw: Script[];
@@ -153,4 +189,23 @@ export function lit(value: string | number): Value {
 
 export function emptyPhases(): Pick<Project, "boot" | "update" | "draw"> {
   return { boot: [], update: [], draw: [] };
+}
+
+export function defaultFields(struct: StructDef): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const f of struct.fields) out[f.name] = f.defaultValue;
+  return out;
+}
+
+export function emptyStruct(name: string): StructDef {
+  return {
+    id: nid(),
+    name,
+    fields: [],
+    methods: [],
+  };
+}
+
+export function emptyMethod(name: string): MethodDef {
+  return { id: nid(), name, scripts: [] };
 }

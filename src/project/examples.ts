@@ -4,11 +4,13 @@ import type {
   Costume,
   CostumeKind,
   Entity,
+  MethodDef,
   Project,
   Script,
+  StructDef,
   Variable,
 } from "./types";
-import { nid } from "./types";
+import { defaultFields, nid } from "./types";
 
 function costume(kind: CostumeKind, name: string): Costume {
   return { id: nid(), name, kind };
@@ -24,6 +26,8 @@ function entity(
     id: nid(),
     name,
     tag,
+    structName: null,
+    fields: {},
     x: 0,
     y: 0,
     vx: 0,
@@ -63,6 +67,16 @@ function ifKey(key: string, body: Block): Block {
   return iff;
 }
 
+function baseProject(
+  partial: Omit<Project, "version" | "structs"> & { structs?: StructDef[] },
+): Project {
+  return {
+    ...partial,
+    version: 3,
+    structs: partial.structs ?? [],
+  };
+}
+
 /** Bounce with velocity — one update loop. */
 export function bouncingProject(): Project {
   const boot = script(
@@ -98,8 +112,7 @@ export function bouncingProject(): Project {
     ),
   );
 
-  return {
-    version: 2,
+  return baseProject({
     name: "バウンス",
     backdrop: "sky",
     variables: [],
@@ -110,7 +123,7 @@ export function bouncingProject(): Project {
     boot: [boot],
     update: [update],
     draw: [],
-  };
+  });
 }
 
 export function keyboardProject(): Project {
@@ -131,8 +144,7 @@ export function keyboardProject(): Project {
     ),
   );
 
-  return {
-    version: 2,
+  return baseProject({
     name: "キーボード操作",
     backdrop: "grid",
     variables: [],
@@ -140,7 +152,7 @@ export function keyboardProject(): Project {
     boot: [],
     update: [update],
     draw: [],
-  };
+  });
 }
 
 export function collectProject(): Project {
@@ -197,8 +209,7 @@ export function collectProject(): Project {
     }),
   );
 
-  return {
-    version: 2,
+  return baseProject({
     name: "スター集め",
     backdrop: "space",
     variables: [score],
@@ -209,13 +220,108 @@ export function collectProject(): Project {
     boot: [boot],
     update: [update],
     draw: [draw],
+  });
+}
+
+/** Rust-like struct Player + impl Player { fn update } */
+export function structProject(): Project {
+  const setVxFromSpeed = createBlock("motion_set_vx");
+  setVxFromSpeed.args.VX = {
+    kind: "block",
+    block: createBlock("oo_field_get", { FIELD: "speed" }),
   };
+  const setVxNegSpeed = createBlock("motion_set_vx");
+  setVxNegSpeed.args.VX = {
+    kind: "block",
+    block: (() => {
+      const sub = createBlock("operator_sub", { A: "0" });
+      sub.args.B = {
+        kind: "block",
+        block: createBlock("oo_field_get", { FIELD: "speed" }),
+      };
+      return sub;
+    })(),
+  };
+  const setVyFromSpeed = createBlock("motion_set_vy");
+  setVyFromSpeed.args.VY = {
+    kind: "block",
+    block: createBlock("oo_field_get", { FIELD: "speed" }),
+  };
+  const setVyNegSpeed = createBlock("motion_set_vy");
+  setVyNegSpeed.args.VY = {
+    kind: "block",
+    block: (() => {
+      const sub = createBlock("operator_sub", { A: "0" });
+      sub.args.B = {
+        kind: "block",
+        block: createBlock("oo_field_get", { FIELD: "speed" }),
+      };
+      return sub;
+    })(),
+  };
+
+  const updateBody = chain(
+    createBlock("motion_set_vx", { VX: "0" }),
+    createBlock("motion_set_vy", { VY: "0" }),
+    ifKey("left", setVxNegSpeed),
+    ifKey("right", setVxFromSpeed),
+    ifKey("down", setVyNegSpeed),
+    ifKey("up", setVyFromSpeed),
+    createBlock("motion_apply_velocity"),
+    createBlock("motion_bounce_edges"),
+  );
+
+  const updateMethod: MethodDef = {
+    id: nid(),
+    name: "update",
+    scripts: [script(updateBody)],
+  };
+
+  const playerStruct: StructDef = {
+    id: nid(),
+    name: "Player",
+    fields: [{ name: "speed", defaultValue: 180 }],
+    methods: [updateMethod],
+  };
+
+  const fields = defaultFields(playerStruct);
+
+  const update = script(
+    foreachTag("player", createBlock("oo_call", { METHOD: "update" })),
+  );
+
+  const draw = script(
+    createBlock("draw_text", {
+      TEXT: "impl Player::update — 矢印で移動",
+      X: "-220",
+      Y: "155",
+    }),
+  );
+
+  return baseProject({
+    name: "struct + impl",
+    backdrop: "grid",
+    variables: [],
+    structs: [playerStruct],
+    entities: [
+      entity("hero", "player", "cat", {
+        structName: "Player",
+        fields: { ...fields },
+        x: 0,
+        y: 0,
+      }),
+    ],
+    boot: [],
+    update: [update],
+    draw: [draw],
+  });
 }
 
 export const EXAMPLES: { id: string; label: string; make: () => Project }[] = [
   { id: "bounce", label: "バウンス", make: bouncingProject },
   { id: "keys", label: "キーボード操作", make: keyboardProject },
   { id: "collect", label: "スター集め", make: collectProject },
+  { id: "struct", label: "struct + impl", make: structProject },
 ];
 
 export function emptyEntity(
@@ -238,8 +344,7 @@ export function emptyEntity(
 }
 
 export function emptyProject(): Project {
-  return {
-    version: 2,
+  return baseProject({
     name: "無題",
     backdrop: "sky",
     variables: [],
@@ -247,5 +352,5 @@ export function emptyProject(): Project {
     boot: [],
     update: [],
     draw: [],
-  };
+  });
 }

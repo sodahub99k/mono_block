@@ -101,6 +101,16 @@
   color: #fff;
 }
 
+.impl-badge {
+  margin-left: 8px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: #3a241c;
+  color: #f4a261;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .entity-tag {
   display: block;
   font-size: 10px;
@@ -308,6 +318,7 @@
 }
 
 .sprite-pane,
+.struct-pane,
 .inspector {
   padding: 8px 10px 12px;
   border-top: 1px solid var(--line);
@@ -382,6 +393,141 @@
 .add-kind:hover {
   color: #fff;
   border-color: var(--accent);
+}
+
+.struct-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.struct-card {
+  position: relative;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: #171a23;
+  color: inherit;
+  border-radius: 8px;
+  padding: 8px 28px 8px 10px;
+}
+
+.struct-card.is-selected {
+  border-color: #e76f51;
+  box-shadow: 0 0 0 1px #e76f51;
+}
+
+.struct-card code {
+  font-size: 12px;
+  color: #f4a261;
+}
+
+.struct-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.struct-add {
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 0.4rem;
+  font-size: 12px;
+}
+
+.struct-detail {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.struct-detail label {
+  display: grid;
+  gap: 4px;
+}
+
+.struct-detail input {
+  background: #171a23;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
+}
+
+.struct-section-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #e76f51;
+  margin-top: 4px;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 64px 24px;
+  gap: 4px;
+  align-items: center;
+}
+
+.mini-del {
+  border: 0;
+  background: transparent;
+  color: #9aa3b2;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.mini-add {
+  justify-self: start;
+  font-size: 11px !important;
+  padding: 0.2rem 0.5rem !important;
+}
+
+.method-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.method-chip {
+  border: 1px solid var(--line);
+  background: #171a23;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.method-chip.is-active {
+  border-color: #e76f51;
+  color: #f4a261;
+  background: #2a1c16;
+}
+
+.method-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.method-rename {
+  display: grid;
+  gap: 4px;
+}
+
+.struct-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.struct-hint code {
+  color: #f4a261;
 }
 
 .inspector {

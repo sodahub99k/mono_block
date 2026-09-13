@@ -5,6 +5,7 @@ export type CategoryId =
   | "game"
   | "input"
   | "entity"
+  | "oo"
   | "motion"
   | "looks"
   | "draw"
@@ -36,6 +37,7 @@ export const COLORS: Record<CategoryId, string> = {
   game: "#0FBD8C",
   input: "#5CB1D6",
   entity: "#FF8C1A",
+  oo: "#E76F51",
   motion: "#4C97FF",
   looks: "#9966FF",
   draw: "#CF63CF",
@@ -49,6 +51,7 @@ export const CATEGORY_LABEL: Record<CategoryId, string> = {
   game: "ゲーム",
   input: "入力",
   entity: "エンティティ",
+  oo: "struct",
   motion: "動き",
   looks: "見た目",
   draw: "描画",
@@ -611,6 +614,58 @@ export const DEFS: BlockDef[] = [
     color: COLORS.variables,
     parts: [{ t: "var", name: "VAR" }],
   },
+  {
+    op: "oo_field_get",
+    category: "oo",
+    shape: "reporter",
+    color: COLORS.oo,
+    parts: [
+      { t: "text", s: "self." },
+      { t: "str", name: "FIELD", def: "speed" },
+    ],
+  },
+  {
+    op: "oo_field_set",
+    category: "oo",
+    shape: "stack",
+    color: COLORS.oo,
+    parts: [
+      { t: "text", s: "self." },
+      { t: "str", name: "FIELD", def: "speed" },
+      { t: "text", s: "=" },
+      { t: "num", name: "VALUE", def: "0" },
+    ],
+  },
+  {
+    op: "oo_field_change",
+    category: "oo",
+    shape: "stack",
+    color: COLORS.oo,
+    parts: [
+      { t: "text", s: "self." },
+      { t: "str", name: "FIELD", def: "speed" },
+      { t: "text", s: "+=" },
+      { t: "num", name: "VALUE", def: "1" },
+    ],
+  },
+  {
+    op: "oo_call",
+    category: "oo",
+    shape: "stack",
+    color: COLORS.oo,
+    parts: [
+      { t: "text", s: "self." },
+      { t: "str", name: "METHOD", def: "update" },
+      { t: "text", s: "()" },
+    ],
+  },
+  {
+    op: "oo_struct_name",
+    category: "oo",
+    shape: "reporter",
+    color: COLORS.oo,
+    parts: [{ t: "text", s: "self の struct" }],
+  },
 ];
 
 const DEF_MAP = new Map(DEFS.map((d) => [d.op, d]));
@@ -669,8 +724,10 @@ export function chain(...blocks: Block[]): Block {
   return blocks[0]!;
 }
 
+/** Method bodies get the same palette as update (input + motion + oo). */
 export function defsForPhase(
-  phase: "boot" | "update" | "draw",
+  phase: "boot" | "update" | "draw" | "method",
 ): BlockDef[] {
-  return DEFS.filter((d) => !d.phases || d.phases.includes(phase));
+  const p = phase === "method" ? "update" : phase;
+  return DEFS.filter((d) => !d.phases || d.phases.includes(p));
 }

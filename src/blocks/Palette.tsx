@@ -14,9 +14,11 @@ import {
 } from "./catalog";
 import type { Opcode, PhaseId, Project } from "../project/types";
 
+type PalettePhase = PhaseId | "method";
+
 type Props = {
   project: Project;
-  phase: PhaseId;
+  phase: PalettePhase;
   onBeginDrag: (
     e: ReactPointerEvent,
     op: Opcode,
@@ -29,6 +31,7 @@ const ORDER: CategoryId[] = [
   "game",
   "input",
   "entity",
+  "oo",
   "motion",
   "looks",
   "draw",
